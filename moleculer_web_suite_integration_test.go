@@ -1,4 +1,4 @@
-package gateway
+package gateway_test
 
 import (
 	"testing"
@@ -9,5 +9,5 @@ import (
 
 func TestMoleculerWeb(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Gateway Unit Tests")
+	RunSpecs(t, "Gateway Integration Tests")
 }

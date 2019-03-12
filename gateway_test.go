@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -181,7 +180,6 @@ var _ = Describe("API Gateway", func() {
 			response := &mockReponseWriter{}
 			sendReponse(resultChan, response)
 			json := response.String()
-			fmt.Println("json: ", json)
 			Expect(gjson.Get(json, "error").String()).Should(Equal("Some error..."))
 			Expect(response.statusCode).Should(Equal(errorStatusCode))
 		})

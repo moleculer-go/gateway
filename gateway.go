@@ -134,7 +134,6 @@ func invalidHttpMethodError(response http.ResponseWriter, methods map[string]boo
 	sendReponse(rChan, response)
 }
 
-//TODO adjust status codes
 var succesStatusCode = 200
 var errorStatusCode = 500
 var resultParseErrorStatusCode = 500
@@ -207,19 +206,19 @@ func (handler *actionHandler) ServeHTTP(response http.ResponseWriter, request *h
 	switch request.Method {
 	case http.MethodGet:
 		if methods["GET"] {
-			go sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodPost:
 		if methods["POST"] {
-			go sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodPut:
 		if methods["PUT"] {
-			go sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodDelete:
 		if methods["DELETE"] {
-			go sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	default:
 		invalidHttpMethodError(response, methods)
@@ -371,6 +370,7 @@ var defaultSettings = map[string]interface{}{
 func createServeMux(settings map[string]interface{}, context moleculer.Context) *http.ServeMux {
 	serveMux := http.NewServeMux()
 	for _, actionHand := range filterActions(settings, fetchServices(context)) {
+		actionHand.context = context
 		serveMux.Handle(actionHand.pattern(), actionHand)
 	}
 	return serveMux
@@ -392,11 +392,10 @@ func Service() moleculer.Service {
 			server = &http.Server{Addr: address}
 			logger.Info("Gateway starting server on: ", address)
 			err := server.ListenAndServe()
-			if err != nil {
-				logger.Error("Error listening server server on: ", address)
-			} else {
-				logger.Info("Server stoped -> address: ", address)
+			if err != nil && err.Error() != "http: Server closed" {
+				logger.Error("Error listening server on: ", address, " error: ", err)
 			}
+			logger.Info("Server stoped -> address: ", address)
 		},
 		Started: func(context moleculer.BrokerContext, svc moleculer.Service) {
 			instanceSettings = svc.Settings
