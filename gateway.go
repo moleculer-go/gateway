@@ -136,24 +136,46 @@ func invalidHttpMethodError(response http.ResponseWriter, methods map[string]boo
 
 //TODO adjust status codes
 var succesStatusCode = 200
-var errorStatusCode = 505
-var resultParseErrorStatusCode = 303
+var errorStatusCode = 500
+var resultParseErrorStatusCode = 500
 
 // sendReponse send the result payload  back using the ResponseWriter
 func sendReponse(resultChan chan moleculer.Payload, response http.ResponseWriter) {
 	result := <-resultChan
-	json, err := sjson.Set("", "", result.Value())
-	if err != nil {
-		json, _ = sjson.Set("", "error", fmt.Sprint("Error trying to parse payload into JSON! Error: ", err))
-		response.Write([]byte(json))
+
+	json := []byte{}
+	errors := []string{}
+	result.ForEach(func(key interface{}, value moleculer.Payload) bool {
+		var err error
+		if key == nil && value.IsError() {
+			json, err = sjson.SetBytes(json, "error", value.Error().Error())
+			if err != nil {
+				errors = append(errors, fmt.Sprint("Error trying to parse the value of field:", key, " Error: ", err))
+			}
+		} else if key == nil {
+			json = []byte(fmt.Sprint(value.Value()))
+		} else {
+			json, err = sjson.SetBytes(json, key.(string), value.Value())
+			if err != nil {
+				errors = append(errors, fmt.Sprint("Error trying to parse the value of field:", key, " Error: ", err))
+			}
+		}
+		return true
+	})
+
+	if len(errors) > 0 {
+		json = []byte{}
+		for _, item := range errors {
+			json, _ = sjson.SetBytes(json, "errors.-1", item)
+		}
+		response.Write(json)
 		response.WriteHeader(resultParseErrorStatusCode)
 		return
 	}
-	_, err = response.Write([]byte(json))
+	_, err := response.Write(json)
 	if err != nil {
 		panic(fmt.Sprint("Could not send reponse! error: ", err))
 	}
-	response.Write([]byte(json))
 	if result.IsError() {
 		response.WriteHeader(errorStatusCode)
 	} else {

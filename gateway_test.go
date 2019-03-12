@@ -1,15 +1,49 @@
 package gateway
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 
+	"github.com/tidwall/gjson"
+
+	"github.com/moleculer-go/moleculer/payload"
+
+	"github.com/moleculer-go/moleculer"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
 )
+
+type mockReponseWriter struct {
+	buffer     []byte
+	statusCode int
+	header     http.Header
+}
+
+func (w *mockReponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *mockReponseWriter) Write(bytes []byte) (int, error) {
+	w.buffer = append(w.buffer, bytes...)
+	return len(bytes), nil
+}
+
+func (w *mockReponseWriter) String() string {
+	return string(w.buffer)
+}
+
+func (w *mockReponseWriter) StatusCode() int {
+	return w.statusCode
+}
+
+func (w *mockReponseWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+}
 
 var _ = Describe("API Gateway", func() {
 
@@ -123,10 +157,33 @@ var _ = Describe("API Gateway", func() {
 
 	Describe("sendReponse", func() {
 		It("should convert result into JSON and send in the reponse with success status code", func() {
-			//TODO ...
+			result := map[string]interface{}{
+				"name":     "John",
+				"lastName": "Snow",
+				"category": "Bastart",
+				"nilvalue": nil,
+			}
+			resultChan := make(chan moleculer.Payload, 1)
+			resultChan <- payload.Create(result)
+			response := &mockReponseWriter{}
+			sendReponse(resultChan, response)
+			json := response.String()
+			Expect(gjson.Get(json, "category").String()).Should(Equal("Bastart"))
+			Expect(gjson.Get(json, "lastName").String()).Should(Equal("Snow"))
+			Expect(gjson.Get(json, "name").String()).Should(Equal("John"))
+
+			Expect(response.statusCode).Should(Equal(succesStatusCode))
 		})
+
 		It("should convert error result into JSON and send in the reponse with error status code", func() {
-			//TODO
+			resultChan := make(chan moleculer.Payload, 1)
+			resultChan <- payload.Create(errors.New("Some error..."))
+			response := &mockReponseWriter{}
+			sendReponse(resultChan, response)
+			json := response.String()
+			fmt.Println("json: ", json)
+			Expect(gjson.Get(json, "error").String()).Should(Equal("Some error..."))
+			Expect(response.statusCode).Should(Equal(errorStatusCode))
 		})
 	})
 
