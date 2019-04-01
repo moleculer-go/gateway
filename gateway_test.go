@@ -163,7 +163,7 @@ var _ = Describe("API Gateway", func() {
 				"nilvalue": nil,
 			}
 			resultChan := make(chan moleculer.Payload, 1)
-			resultChan <- payload.Create(result)
+			resultChan <- payload.New(result)
 			response := &mockReponseWriter{}
 			sendReponse(resultChan, response)
 			json := response.String()
@@ -176,7 +176,7 @@ var _ = Describe("API Gateway", func() {
 
 		It("should convert error result into JSON and send in the reponse with error status code", func() {
 			resultChan := make(chan moleculer.Payload, 1)
-			resultChan <- payload.Create(errors.New("Some error..."))
+			resultChan <- payload.New(errors.New("Some error..."))
 			response := &mockReponseWriter{}
 			sendReponse(resultChan, response)
 			json := response.String()

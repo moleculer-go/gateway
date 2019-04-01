@@ -18,7 +18,7 @@ import (
 var logLevel = "Error"
 
 func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
-	broker := broker.FromConfig(&moleculer.BrokerConfig{
+	broker := broker.New(&moleculer.Config{
 		DiscoverNodeID: func() string { return "node_printerBroker" },
 		LogLevel:       logLevel,
 		TransporterFactory: func() interface{} {
@@ -52,7 +52,7 @@ func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 }
 
 func createGatewayBroker(mem *memory.SharedMemory) broker.ServiceBroker {
-	broker := broker.FromConfig(&moleculer.BrokerConfig{
+	broker := broker.New(&moleculer.Config{
 		DiscoverNodeID: func() string { return "node_gatewayBroker" },
 		LogLevel:       logLevel,
 		TransporterFactory: func() interface{} {
@@ -90,7 +90,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			}
 			fmt.Println("type for func() --> ", fmt.Sprintf("%T", value))
 
-			response, err := http.Get("http://localhost:3000/printer/print?content=HellowWorld")
+			response, err := http.Get("http://localhost:3100/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())
 
 			defer response.Body.Close()

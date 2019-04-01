@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/moleculer-go/moleculer/payload"
+	"github.com/moleculer-go/moleculer/service"
 
 	"github.com/moleculer-go/moleculer"
 	log "github.com/sirupsen/logrus"
@@ -130,7 +131,7 @@ func invalidHttpMethodError(response http.ResponseWriter, methods map[string]boo
 	}
 	error := fmt.Errorf("Invalid HTTP Method - accepted methods: %s", acceptedMethods)
 	rChan := make(chan moleculer.Payload, 1)
-	rChan <- payload.Create(error)
+	rChan <- payload.New(error)
 	sendReponse(rChan, response)
 }
 
@@ -188,7 +189,7 @@ func paramsFromRequest(request *http.Request, logger *log.Entry) moleculer.Paylo
 	err := request.ParseForm()
 	if err != nil {
 		logger.Error("Error calling request.ParseForm() -> ", err)
-		return payload.Create(err)
+		return payload.New(err)
 	}
 	for name, value := range request.Form {
 		if len(value) == 1 {
@@ -197,7 +198,7 @@ func paramsFromRequest(request *http.Request, logger *log.Entry) moleculer.Paylo
 			params[name] = value
 		}
 	}
-	return payload.Create(params)
+	return payload.New(params)
 }
 
 func (handler *actionHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -329,7 +330,7 @@ var defaultRoutes = []map[string]interface{}{
 
 var defaultSettings = map[string]interface{}{
 	// Exposed port
-	"port": "3000",
+	"port": "3100",
 
 	// Exposed IP
 	"ip": "0.0.0.0",
@@ -377,17 +378,23 @@ func createServeMux(settings map[string]interface{}, context moleculer.Context) 
 }
 
 //Service create the service schema for the API Gateway service.
-func Service() moleculer.Service {
+func Service(settings ...map[string]interface{}) moleculer.Service {
 
 	var instanceSettings = defaultSettings
 	var server *http.Server
+	if settings != nil && len(settings) > 0 {
+		settings = append(settings, instanceSettings)
+		instanceSettings = service.MergeSettings(settings...)
+	}
 
 	return moleculer.Service{
-		Name:     "api",
-		Settings: defaultSettings,
+		Name:         "api",
+		Settings:     defaultSettings,
+		Dependencies: []string{"$node"},
 		Created: func(svc moleculer.Service, logger *log.Entry) {
-			ip := svc.Settings["ip"].(string)
-			port := svc.Settings["port"].(string)
+			instanceSettings = svc.Settings
+			ip := instanceSettings["ip"].(string)
+			port := instanceSettings["port"].(string)
 			address := fmt.Sprint(ip, ":", port)
 			server = &http.Server{Addr: address}
 			logger.Info("Gateway starting server on: ", address)
@@ -395,10 +402,9 @@ func Service() moleculer.Service {
 			if err != nil && err.Error() != "http: Server closed" {
 				logger.Error("Error listening server on: ", address, " error: ", err)
 			}
-			logger.Info("Server stoped -> address: ", address)
+			logger.Info("Server stopped -> address: ", address)
 		},
 		Started: func(context moleculer.BrokerContext, svc moleculer.Service) {
-			instanceSettings = svc.Settings
 			server.Handler = createServeMux(instanceSettings, context.(moleculer.Context))
 		},
 		Stopped: func(context moleculer.BrokerContext, svc moleculer.Service) {
