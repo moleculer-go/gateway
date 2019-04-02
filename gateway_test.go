@@ -165,7 +165,7 @@ var _ = Describe("API Gateway", func() {
 			resultChan := make(chan moleculer.Payload, 1)
 			resultChan <- payload.New(result)
 			response := &mockReponseWriter{}
-			sendReponse(resultChan, response)
+			sendReponse(log.WithField("test", ""), resultChan, response)
 			json := response.String()
 			Expect(gjson.Get(json, "category").String()).Should(Equal("Bastart"))
 			Expect(gjson.Get(json, "lastName").String()).Should(Equal("Snow"))
@@ -178,7 +178,7 @@ var _ = Describe("API Gateway", func() {
 			resultChan := make(chan moleculer.Payload, 1)
 			resultChan <- payload.New(errors.New("Some error..."))
 			response := &mockReponseWriter{}
-			sendReponse(resultChan, response)
+			sendReponse(log.WithField("test", ""), resultChan, response)
 			json := response.String()
 			Expect(gjson.Get(json, "error").String()).Should(Equal("Some error..."))
 			Expect(response.statusCode).Should(Equal(errorStatusCode))

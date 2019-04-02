@@ -70,18 +70,20 @@ var _ = Describe("API Gateway Integration Tests", func() {
 		servicesBkr := createPrinterBroker(mem)
 		gatewayBkr := createGatewayBroker(mem)
 
-		BeforeSuite(func() {
+		BeforeEach(func() {
 			servicesBkr.Start()
 			gatewayBkr.Start()
 		})
 
-		AfterSuite(func() {
+		AfterEach(func() {
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
 		})
 
 		It("should create a gateway with default settings", func() {
-			gatewaySvc := gateway.Service()
+			gatewaySvc := gateway.Service(map[string]interface{}{
+				"port": "3552",
+			})
 			gatewayBkr.AddService(gatewaySvc)
 			time.Sleep(300 * time.Millisecond)
 
@@ -90,7 +92,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			}
 			fmt.Println("type for func() --> ", fmt.Sprintf("%T", value))
 
-			response, err := http.Get("http://localhost:3100/printer/print?content=HellowWorld")
+			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())
 
 			defer response.Body.Close()
