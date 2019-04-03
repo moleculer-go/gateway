@@ -3,6 +3,7 @@ package gateway
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -157,13 +158,12 @@ func sendReponse(logger *log.Entry, result moleculer.Payload, response http.Resp
 	response.Write(json)
 }
 
-// paramsFromRequest extract params from body and URL into a payload.
-func paramsFromRequest(request *http.Request, logger *log.Entry) moleculer.Payload {
+func paramsFromRequestForm(request *http.Request, logger *log.Entry) (map[string]interface{}, error) {
 	params := map[string]interface{}{}
 	err := request.ParseForm()
 	if err != nil {
 		logger.Error("Error calling request.ParseForm() -> ", err)
-		return payload.New(err)
+		return nil, err
 	}
 	for name, value := range request.Form {
 		if len(value) == 1 {
@@ -172,7 +172,24 @@ func paramsFromRequest(request *http.Request, logger *log.Entry) moleculer.Paylo
 			params[name] = value
 		}
 	}
-	return payload.New(params)
+	return params, nil
+}
+
+// paramsFromRequest extract params from body and URL into a payload.
+func paramsFromRequest(request *http.Request, logger *log.Entry) moleculer.Payload {
+	mvalues, err := paramsFromRequestForm(request, logger)
+	if len(mvalues) > 0 {
+		return payload.New(mvalues)
+	}
+	if err != nil {
+		return payload.Error("Error trying to parse request form values. Error: ", err.Error())
+	}
+	serializer := serializer.CreateJSONSerializer(logger)
+	bts, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		return payload.Error("Error trying to parse request body. Error: ", err.Error())
+	}
+	return serializer.BytesToPayload(&bts)
 }
 
 func (handler *actionHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
