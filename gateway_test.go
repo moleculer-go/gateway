@@ -11,7 +11,6 @@ import (
 
 	"github.com/moleculer-go/moleculer/payload"
 
-	"github.com/moleculer-go/moleculer"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
@@ -162,10 +161,9 @@ var _ = Describe("API Gateway", func() {
 				"category": "Bastart",
 				"nilvalue": nil,
 			}
-			resultChan := make(chan moleculer.Payload, 1)
-			resultChan <- payload.New(result)
+
 			response := &mockReponseWriter{}
-			sendReponse(log.WithField("test", ""), resultChan, response)
+			sendReponse(log.WithField("test", ""), payload.New(result), response)
 			json := response.String()
 			Expect(gjson.Get(json, "category").String()).Should(Equal("Bastart"))
 			Expect(gjson.Get(json, "lastName").String()).Should(Equal("Snow"))
@@ -175,10 +173,8 @@ var _ = Describe("API Gateway", func() {
 		})
 
 		It("should convert error result into JSON and send in the reponse with error status code", func() {
-			resultChan := make(chan moleculer.Payload, 1)
-			resultChan <- payload.New(errors.New("Some error..."))
 			response := &mockReponseWriter{}
-			sendReponse(log.WithField("test", ""), resultChan, response)
+			sendReponse(log.WithField("test", ""), payload.New(errors.New("Some error...")), response)
 			json := response.String()
 			Expect(gjson.Get(json, "error").String()).Should(Equal("Some error..."))
 			Expect(response.statusCode).Should(Equal(errorStatusCode))

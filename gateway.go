@@ -13,10 +13,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/payload"
+	"github.com/moleculer-go/moleculer/serializer"
 	"github.com/moleculer-go/moleculer/service"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/sjson"
 )
 
 var actionWildCardRegex = regexp.MustCompile(`(.+)\.\*`)
@@ -135,9 +135,7 @@ func invalidHttpMethodError(logger *log.Entry, response http.ResponseWriter, met
 		acceptedMethods = append(acceptedMethods, methodName)
 	}
 	error := fmt.Errorf("Invalid HTTP Method - accepted methods: %s", acceptedMethods)
-	rChan := make(chan moleculer.Payload, 1)
-	rChan <- payload.New(error)
-	sendReponse(logger, rChan, response)
+	sendReponse(logger, payload.New(error), response)
 }
 
 var succesStatusCode = 200
@@ -145,48 +143,18 @@ var errorStatusCode = 500
 var resultParseErrorStatusCode = 500
 
 // sendReponse send the result payload  back using the ResponseWriter
-func sendReponse(logger *log.Entry, resultChan chan moleculer.Payload, response http.ResponseWriter) {
-	result := <-resultChan
-	logger.Debug("Gateway SendReponse() - result: ", result)
-
-	json := []byte{}
-	errors := []string{}
-	result.ForEach(func(key interface{}, value moleculer.Payload) bool {
-		var err error
-		if key == nil && value.IsError() {
-			json, err = sjson.SetBytes(json, "error", value.Error().Error())
-			if err != nil {
-				errors = append(errors, fmt.Sprint("Error trying to parse the value of field:", key, " Error: ", err))
-			}
-		} else if key == nil {
-			json = []byte(fmt.Sprint(value.Value()))
-		} else {
-			json, err = sjson.SetBytes(json, key.(string), value.Value())
-			if err != nil {
-				errors = append(errors, fmt.Sprint("Error trying to parse the value of field:", key, " Error: ", err))
-			}
-		}
-		return true
-	})
-
-	if len(errors) > 0 {
-		json = []byte{}
-		for _, item := range errors {
-			json, _ = sjson.SetBytes(json, "errors.-1", item)
-		}
-		response.Write(json)
-		response.WriteHeader(resultParseErrorStatusCode)
-		return
-	}
-	_, err := response.Write(json)
-	if err != nil {
-		panic(fmt.Sprint("Could not send reponse! error: ", err))
-	}
+func sendReponse(logger *log.Entry, result moleculer.Payload, response http.ResponseWriter) {
+	serializer := serializer.CreateJSONSerializer(logger)
+	json := serializer.PayloadToBytes(result)
+	//if logger.Level == log.DebugLevel {
+	logger.Debug("Gateway SendReponse() - result: ", result, " json: ", string(json))
+	//}
 	if result.IsError() {
 		response.WriteHeader(errorStatusCode)
 	} else {
 		response.WriteHeader(succesStatusCode)
 	}
+	response.Write(json)
 }
 
 // paramsFromRequest extract params from body and URL into a payload.
@@ -213,19 +181,19 @@ func (handler *actionHandler) ServeHTTP(response http.ResponseWriter, request *h
 	switch request.Method {
 	case http.MethodGet:
 		if methods["GET"] {
-			sendReponse(logger, handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodPost:
 		if methods["POST"] {
-			sendReponse(logger, handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodPut:
 		if methods["PUT"] {
-			sendReponse(logger, handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodDelete:
 		if methods["DELETE"] {
-			sendReponse(logger, handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	default:
 		invalidHttpMethodError(logger, response, methods)
@@ -382,7 +350,7 @@ func populateActionsRouter(context moleculer.Context, settings map[string]interf
 	for _, actionHand := range filterActions(settings, fetchServices(context)) {
 		actionHand.context = context
 		path := actionHand.pattern()
-		fmt.Println("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
+		context.Logger().Trace("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
 		router.Handle(actionHand.pattern(), actionHand)
 	}
 }
@@ -422,6 +390,13 @@ func createReverseProxy(context moleculer.Context, settings map[string]interface
 	return routes
 }
 
+func getAddress(instance *moleculer.Service) string {
+	fmt.Println("final instanceSettings: ", instance.Settings)
+	ip := instance.Settings["ip"].(string)
+	port := instance.Settings["port"].(string)
+	return fmt.Sprint(ip, ":", port)
+}
+
 //Service create the service schema for the API Gateway service.
 func Service(settings ...map[string]interface{}) moleculer.Service {
 	var server *http.Server
@@ -434,13 +409,6 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 		}
 	}
 
-	getAddress := func() string {
-		fmt.Println("final instanceSettings: ", instance.Settings)
-		ip := instance.Settings["ip"].(string)
-		port := instance.Settings["port"].(string)
-		return fmt.Sprint(ip, ":", port)
-	}
-
 	// create the tree of handler again due some change, usualy a service being added or removed.
 	resetHandlers := func(context moleculer.Context) {
 		enableCors := false
@@ -448,7 +416,7 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 			server.Shutdown(nil)
 		}
 		mutex.Lock()
-		address := getAddress()
+		address := getAddress(instance)
 		server = &http.Server{Addr: address}
 		context.Logger().Info("Gateway starting server on: ", address)
 
@@ -483,10 +451,14 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 			instance = &svc
 		},
 		Started: func(context moleculer.BrokerContext, svc moleculer.Service) {
+			instance = &svc
 			go resetHandlers(context.(moleculer.Context))
 		},
 		Stopped: func(context moleculer.BrokerContext, svc moleculer.Service) {
 			context.Logger().Info("Gateway stopped()")
+			if server == nil {
+				return
+			}
 			err := server.Shutdown(nil)
 			if err != nil {
 				context.Logger().Error("Error shutting down server - error: ", err)
