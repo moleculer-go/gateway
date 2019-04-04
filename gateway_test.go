@@ -7,6 +7,12 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/moleculer-go/moleculer"
+	"github.com/moleculer-go/moleculer/context"
+	"github.com/moleculer-go/moleculer/test"
+
+	"github.com/moleculer-go/moleculer/serializer"
+
 	"github.com/tidwall/gjson"
 
 	"github.com/moleculer-go/moleculer/payload"
@@ -70,6 +76,11 @@ var _ = Describe("API Gateway", func() {
 				},
 			},
 		}
+		bkrContext := context.BrokerContext(test.DelegatesWithIdAndConfig(
+			"nodeID",
+			moleculer.Config{},
+		))
+		ctx := bkrContext.(moleculer.Context)
 		It("should create a list of action handles", func() {
 			settings := map[string]interface{}{
 				"routes": []map[string]interface{}{
@@ -78,7 +89,7 @@ var _ = Describe("API Gateway", func() {
 					},
 				},
 			}
-			actionHandlers := filterActions(settings, services)
+			actionHandlers := filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(4))
 			Expect(actionHandlers[0].pattern()).Should(Equal("/user/list"))
 			Expect(actionHandlers[1].pattern()).Should(Equal("/user/update"))
@@ -93,7 +104,7 @@ var _ = Describe("API Gateway", func() {
 					},
 				},
 			}
-			actionHandlers := filterActions(settings, services)
+			actionHandlers := filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(1))
 			Expect(actionHandlers[0].pattern()).Should(Equal("/user/update"))
 
@@ -105,7 +116,7 @@ var _ = Describe("API Gateway", func() {
 					},
 				},
 			}
-			actionHandlers = filterActions(settings, services)
+			actionHandlers = filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(2))
 			Expect(actionHandlers[0].pattern()).Should(Equal("/user/list"))
 			Expect(actionHandlers[1].pattern()).Should(Equal("/user/update"))
@@ -124,7 +135,7 @@ var _ = Describe("API Gateway", func() {
 					},
 				},
 			}
-			actionHandlers := filterActions(settings, services)
+			actionHandlers := filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(4))
 			Expect(actionHandlers[0].pattern()).Should(Equal("/user/list"))
 			Expect(actionHandlers[1].pattern()).Should(Equal("/user/update"))
@@ -145,7 +156,7 @@ var _ = Describe("API Gateway", func() {
 					},
 				},
 			}
-			actionHandlers = filterActions(settings, services)
+			actionHandlers = filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(12))
 			Expect(actionHandlers[0].pattern()).Should(Equal("/A/user/list"))
 			Expect(actionHandlers[4].pattern()).Should(Equal("/B/user/list"))
@@ -163,7 +174,9 @@ var _ = Describe("API Gateway", func() {
 			}
 
 			response := &mockReponseWriter{}
-			sendReponse(log.WithField("test", ""), payload.New(result), response)
+			serializer := serializer.CreateJSONSerializer(log.WithField("", ""))
+			ah := actionHandler{serializer: &serializer}
+			ah.sendReponse(log.WithField("test", ""), payload.New(result), response)
 			json := response.String()
 			Expect(gjson.Get(json, "category").String()).Should(Equal("Bastart"))
 			Expect(gjson.Get(json, "lastName").String()).Should(Equal("Snow"))
@@ -174,7 +187,9 @@ var _ = Describe("API Gateway", func() {
 
 		It("should convert error result into JSON and send in the reponse with error status code", func() {
 			response := &mockReponseWriter{}
-			sendReponse(log.WithField("test", ""), payload.New(errors.New("Some error...")), response)
+			serializer := serializer.CreateJSONSerializer(log.WithField("", ""))
+			ah := actionHandler{serializer: &serializer}
+			ah.sendReponse(log.WithField("test", ""), payload.New(errors.New("Some error...")), response)
 			json := response.String()
 			Expect(gjson.Get(json, "error").String()).Should(Equal("Some error..."))
 			Expect(response.statusCode).Should(Equal(errorStatusCode))
@@ -264,6 +279,8 @@ var _ = Describe("API Gateway", func() {
 
 	Describe("createActionHandlers", func() {
 
+		serializer := serializer.CreateJSONSerializer(log.WithField("", ""))
+
 		It("should only create actions with alias", func() {
 			route := map[string]interface{}{
 				"path":          "/admin",
@@ -274,7 +291,11 @@ var _ = Describe("API Gateway", func() {
 				},
 			}
 
-			actionHandlers := createActionHandlers(route, []string{"user.list", "user.remove", "auth.login"})
+			actionHandlers := createActionHandlers(
+				route,
+				[]string{"user.list", "user.remove", "auth.login"},
+				&serializer,
+			)
 			Expect(len(actionHandlers)).Should(Equal(2))
 
 			Expect(actionHandlers[0].action).Should(Equal("user.list"))
@@ -291,7 +312,7 @@ var _ = Describe("API Gateway", func() {
 				"path": "/api",
 			}
 
-			actionHandlers := createActionHandlers(route, []string{"user.list", "auth.login"})
+			actionHandlers := createActionHandlers(route, []string{"user.list", "auth.login"}, &serializer)
 			Expect(len(actionHandlers)).Should(Equal(2))
 
 			Expect(actionHandlers[0].action).Should(Equal("user.list"))
@@ -303,7 +324,7 @@ var _ = Describe("API Gateway", func() {
 			route = map[string]interface{}{
 				"path": "/somePrefix/",
 			}
-			actionHandlers = createActionHandlers(route, []string{"profile.create", "image.upload", "msg.send"})
+			actionHandlers = createActionHandlers(route, []string{"profile.create", "image.upload", "msg.send"}, &serializer)
 			Expect(len(actionHandlers)).Should(Equal(3))
 
 			Expect(actionHandlers[0].action).Should(Equal("profile.create"))

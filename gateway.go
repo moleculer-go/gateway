@@ -60,6 +60,7 @@ type actionHandler struct {
 	action               string
 	context              moleculer.Context
 	acceptedMethodsCache map[string]bool
+	serializer           *serializer.JSONSerializer
 }
 
 // aliasPath return the alias path, if one exists for the action.
@@ -130,13 +131,13 @@ func (handler *actionHandler) acceptedMethods() map[string]bool {
 }
 
 // invalidHttpMethodError send an error in the reponse about the http method being invalid.
-func invalidHttpMethodError(logger *log.Entry, response http.ResponseWriter, methods map[string]bool) {
+func (handler *actionHandler) invalidHttpMethodError(logger *log.Entry, response http.ResponseWriter, methods map[string]bool) {
 	acceptedMethods := []string{}
 	for methodName := range methods {
 		acceptedMethods = append(acceptedMethods, methodName)
 	}
 	error := fmt.Errorf("Invalid HTTP Method - accepted methods: %s", acceptedMethods)
-	sendReponse(logger, payload.New(error), response)
+	handler.sendReponse(logger, payload.New(error), response)
 }
 
 var succesStatusCode = 200
@@ -144,12 +145,9 @@ var errorStatusCode = 500
 var resultParseErrorStatusCode = 500
 
 // sendReponse send the result payload  back using the ResponseWriter
-func sendReponse(logger *log.Entry, result moleculer.Payload, response http.ResponseWriter) {
-	serializer := serializer.CreateJSONSerializer(logger)
-	json := serializer.PayloadToBytes(result)
-	//if logger.Level == log.DebugLevel {
-	logger.Debug("Gateway SendReponse() - result: ", result, " json: ", string(json))
-	//}
+func (handler *actionHandler) sendReponse(logger *log.Entry, result moleculer.Payload, response http.ResponseWriter) {
+	json := handler.serializer.PayloadToBytes(result)
+	logger.Debug("Gateway SendReponse() - action: ", handler.action, " json: ", string(json))
 	if result.IsError() {
 		response.WriteHeader(errorStatusCode)
 	} else {
@@ -198,22 +196,22 @@ func (handler *actionHandler) ServeHTTP(response http.ResponseWriter, request *h
 	switch request.Method {
 	case http.MethodGet:
 		if methods["GET"] {
-			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			handler.sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodPost:
 		if methods["POST"] {
-			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			handler.sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodPut:
 		if methods["PUT"] {
-			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			handler.sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	case http.MethodDelete:
 		if methods["DELETE"] {
-			sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
+			handler.sendReponse(logger, <-handler.context.Call(handler.action, paramsFromRequest(request, logger)), response)
 		}
 	default:
-		invalidHttpMethodError(logger, response, methods)
+		handler.invalidHttpMethodError(logger, response, methods)
 	}
 }
 
@@ -226,7 +224,7 @@ func invertStringMap(in map[string]string) map[string]string {
 }
 
 //createActionHandlers create actionHanler for each action with the prefixPath.
-func createActionHandlers(route map[string]interface{}, actions []string) []*actionHandler {
+func createActionHandlers(route map[string]interface{}, actions []string, serializer *serializer.JSONSerializer) []*actionHandler {
 	routePath := route["path"].(string)
 	mappingPolicy, exists := route["mappingPolicy"].(string)
 	if !exists {
@@ -244,7 +242,7 @@ func createActionHandlers(route map[string]interface{}, actions []string) []*act
 		if !exists && mappingPolicy == "restrict" {
 			continue
 		}
-		result = append(result, &actionHandler{alias: actionAlias, routePath: routePath, action: action})
+		result = append(result, &actionHandler{alias: actionAlias, routePath: routePath, action: action, serializer: serializer})
 	}
 	return result
 }
@@ -264,7 +262,8 @@ func fetchServices(context moleculer.Context) []map[string]interface{} {
 
 //filterActions with a list of services collect all actions, applyfilter based on
 // whitelist settings and create action handlers for each action.
-func filterActions(settings map[string]interface{}, services []map[string]interface{}) []*actionHandler {
+func filterActions(context moleculer.Context, settings map[string]interface{}, services []map[string]interface{}) []*actionHandler {
+	serializer := serializer.CreateJSONSerializer(context.Logger())
 	result := []*actionHandler{}
 	routes := settings["routes"].([]map[string]interface{})
 	for _, route := range routes {
@@ -283,7 +282,7 @@ func filterActions(settings map[string]interface{}, services []map[string]interf
 				}
 			}
 		}
-		for _, actionHand := range createActionHandlers(route, filteredActions) {
+		for _, actionHand := range createActionHandlers(route, filteredActions, &serializer) {
 			result = append(result, actionHand)
 		}
 	}
@@ -364,10 +363,10 @@ var defaultSettings = map[string]interface{}{
 
 // populateActionsRouter create a new mux.router
 func populateActionsRouter(context moleculer.Context, settings map[string]interface{}, router *mux.Router) {
-	for _, actionHand := range filterActions(settings, fetchServices(context)) {
+	for _, actionHand := range filterActions(context, settings, fetchServices(context)) {
 		actionHand.context = context
 		path := actionHand.pattern()
-		context.Logger().Trace("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
+		context.Logger().Debug("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
 		router.Handle(actionHand.pattern(), actionHand)
 	}
 }
