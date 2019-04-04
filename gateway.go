@@ -262,12 +262,13 @@ func populateActionsRouter(context moleculer.Context, settings map[string]interf
 
 // when enable these are the default values
 var defaultReverseProxy = map[string]interface{}{
+	//gateway endpoint path
+	"gatewayPath": "/api",
+
 	//reserse proxy target ip:port
 	"target": "http://localhost:3000",
 	//reserse proxy path
 	"targetPath": "/",
-	//gateway endppint path
-	"gatewayPath": "/api",
 }
 
 // createReverseProxy creates a reverse proxy to serve app UI content for ecample on path X and API (gateway content) on path Y.
