@@ -299,6 +299,7 @@ func getAddress(instance *moleculer.Service) string {
 	return fmt.Sprint(ip, ":", port)
 }
 
+// ioServer checks service settings and if enabled create an socket.io server.
 func ioServer(context moleculer.BrokerContext, instance *moleculer.Service, router *mux.Router) *socketio.Server {
 	if instance.Settings["socket.io"] != nil && instance.Settings["socket.io"] != "" {
 		path, ok := instance.Settings["socket.io"].(string)
