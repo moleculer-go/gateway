@@ -174,6 +174,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			Expect(err).Should(Succeed())
 			Expect(bodyContent(response)).Should(Equal("HellowAgain reborn..."))
 
+			tempBkr.Stop()
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
 		})

@@ -7,7 +7,6 @@ import (
 
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/payload"
-	"github.com/moleculer-go/moleculer/serializer"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,7 +16,6 @@ type actionHandler struct {
 	action               string
 	context              moleculer.Context
 	acceptedMethodsCache map[string]bool
-	serializer           *serializer.JSONSerializer
 }
 
 // aliasPath return the alias path, if one exists for the action.
@@ -66,7 +64,7 @@ var resultParseErrorStatusCode = 500
 
 // sendReponse send the result payload  back using the ResponseWriter
 func (handler *actionHandler) sendReponse(logger *log.Entry, result moleculer.Payload, response http.ResponseWriter) {
-	json := handler.serializer.PayloadToBytes(result)
+	json := jsonSerializer.PayloadToBytes(result)
 	logger.Debug("Gateway SendReponse() - action: ", handler.action, " json: ", string(json))
 	if result.IsError() {
 		response.WriteHeader(errorStatusCode)

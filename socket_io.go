@@ -3,12 +3,12 @@ package gateway
 import (
 	"sync"
 
-	socketio "github.com/googollee/go-socket.io"
 	"github.com/moleculer-go/moleculer"
+	gosocketio "github.com/mtfelian/golang-socketio"
 )
 
 type clientEntry struct {
-	conn socketio.Conn
+	//conn socketio.
 }
 
 type topicEntry struct {
@@ -47,7 +47,7 @@ func eventService(topic string, handler moleculer.EventHandler) moleculer.Servic
 }
 
 // startDelivery start the delivery of moleculer events to socket events.
-func (te *topicEntry) startDelivery(conn socketio.Conn, name, value string) {
+func (te *topicEntry) startDelivery(ch *gosocketio.Channel, name, value string) {
 	te.list = append(te.list, deliveryEntry{name, value})
 	if te.started {
 		te.context.Logger().Debug("startDelivery() topic already started! topic name: ", te.topic)
@@ -60,53 +60,76 @@ func (te *topicEntry) startDelivery(conn socketio.Conn, name, value string) {
 		context.Logger().Debug("event handler for topic: ", te.topic, " received params: ", params)
 		for _, de := range te.list {
 			if te.validate(params, de.name, de.value) {
-				conn.Emit(value+"."+te.topic, params.Value())
+				target := de.value + "." + te.topic
+				content := string(jsonSerializer.PayloadToBytes(params))
+				ch.Emit(target, content)
 			}
 		}
 	}))
 }
 
 // createDelivery creates a delivery of moleculer events to a socket.io listener.
-func createDelivery(context moleculer.BrokerContext, clients *sync.Map) func(socketio.Conn, string, string, string) string {
+func createDelivery(context moleculer.BrokerContext, clients *sync.Map) func(ch *gosocketio.Channel, params interface{}) {
 	handlers := &sync.Map{}
-	return func(conn socketio.Conn, name, value, topic string) string {
+	return func(ch *gosocketio.Channel, data interface{}) {
+		context.Logger().Debug("onEvent delivery -> data: ", data)
+		var params moleculer.Payload
+		bts, isBytes := data.([]byte)
+		if isBytes {
+			context.Logger().Debug("onEvent isBytes! ")
+			params = jsonSerializer.BytesToPayload(&bts)
+		}
+		stng, isString := data.(string)
+		if isString {
+			context.Logger().Debug("onEvent isString! ")
+			bts = []byte(stng)
+			params = jsonSerializer.BytesToPayload(&bts)
+		}
+		topic := params.Get("topic").String()
+		name := params.Get("name").String()
+		value := params.Get("value").String()
+
 		context.Logger().Debug("onEvent delivery -> topic: ", topic, " name: ", name, " value: ", value)
 		temp, exists := handlers.Load(topic)
 		var te topicEntry
 		if exists {
+			context.Logger().Debug("onEvent topicEntry found for target: ", topic)
 			te = temp.(topicEntry)
 		} else {
 			te = topicEntry{context: context, topic: topic}
 			handlers.Store(topic, te)
 		}
-		te.startDelivery(conn, name, value)
+		te.startDelivery(ch, name, value)
 		target := value + "." + te.topic + ".setup"
-		context.Logger().Debug("onEvent Develivery Started! -> result: ", target)
-		return target
+		context.Logger().Debug("onEvent Develivery Started! -> target: ", target)
 	}
 }
 
 // createIOServer Creates and start a new socket.io server.
-func createIOServer(context moleculer.BrokerContext) *socketio.Server {
-	server, err := socketio.NewServer(nil)
+func createIOServer(context moleculer.BrokerContext) *gosocketio.Server {
+	server := gosocketio.NewServer()
 	clients := &sync.Map{}
-	if err != nil {
-		context.Logger().Error("Error creating new socket io server - error: ", err)
+
+	if err := server.On(gosocketio.OnConnection, func(ch *gosocketio.Channel) {
+		context.Logger().Debug("socketio connection conn.Id: ", ch.Id())
+	}); err != nil {
+		context.Logger().Error("createIOServer() server.On(connection) error: ", err)
 	}
-	server.OnConnect("/", func(conn socketio.Conn) error {
-		context.Logger().Debug("socketio connection conn.ID: ", conn.ID())
-		//clients.Store(conn.ID(), clientEntry{conn})
-		return nil
-	})
 
-	server.OnEvent("/", "delivery", createDelivery(context, clients))
-	server.OnDisconnect("/", func(conn socketio.Conn, msg string) {
-		context.Logger().Debug("socketio disconnected conn.ID: ", conn.ID())
-		clients.Delete(conn.ID())
-	})
-	server.OnError("/", func(err error) {
-		context.Logger().Error("socketio error: ", err)
+	if err := server.On("delivery", createDelivery(context, clients)); err != nil {
+		context.Logger().Error("createIOServer() server.On(delivery) error: ", err)
+	}
 
-	})
+	if err := server.On(gosocketio.OnDisconnection, func(ch *gosocketio.Channel) {
+		context.Logger().Debug("socketio disconnected ch.Id: ", ch.Id())
+	}); err != nil {
+		context.Logger().Error("createIOServer() server.On(OnDisconnection) error: ", err)
+	}
+
+	if err := server.On(gosocketio.OnError, func(ch *gosocketio.Channel, err interface{}) {
+		context.Logger().Debug("socketio global error handler -> error: ", err)
+	}); err != nil {
+		context.Logger().Error("createIOServer() server.On(OnError) error: ", err)
+	}
 	return server
 }

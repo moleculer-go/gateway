@@ -9,14 +9,16 @@ import (
 	"net/url"
 	"regexp"
 
-	socketio "github.com/googollee/go-socket.io"
 	"github.com/gorilla/mux"
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/payload"
 	"github.com/moleculer-go/moleculer/serializer"
 	"github.com/moleculer-go/moleculer/service"
+	gosocketio "github.com/mtfelian/golang-socketio"
 	log "github.com/sirupsen/logrus"
 )
+
+var jsonSerializer = serializer.CreateJSONSerializer(log.WithField("gateway", "json-serializer"))
 
 var actionWildCardRegex = regexp.MustCompile(`(.+)\.\*`)
 var serviceWildCardRegex = regexp.MustCompile(`\*\.(.+)`)
@@ -89,12 +91,12 @@ func paramsFromRequest(request *http.Request, logger *log.Entry) moleculer.Paylo
 	if err != nil {
 		return payload.Error("Error trying to parse request form values. Error: ", err.Error())
 	}
-	serializer := serializer.CreateJSONSerializer(logger)
+
 	bts, err := ioutil.ReadAll(request.Body)
 	if err != nil {
 		return payload.Error("Error trying to parse request body. Error: ", err.Error())
 	}
-	return serializer.BytesToPayload(&bts)
+	return jsonSerializer.BytesToPayload(&bts)
 }
 
 func invertStringMap(in map[string]string) map[string]string {
@@ -106,7 +108,7 @@ func invertStringMap(in map[string]string) map[string]string {
 }
 
 //createActionHandlers create actionHanler for each action with the prefixPath.
-func createActionHandlers(route map[string]interface{}, actions []string, serializer *serializer.JSONSerializer) []*actionHandler {
+func createActionHandlers(route map[string]interface{}, actions []string) []*actionHandler {
 	routePath := route["path"].(string)
 	mappingPolicy, exists := route["mappingPolicy"].(string)
 	if !exists {
@@ -124,7 +126,7 @@ func createActionHandlers(route map[string]interface{}, actions []string, serial
 		if !exists && mappingPolicy == "restrict" {
 			continue
 		}
-		result = append(result, &actionHandler{alias: actionAlias, routePath: routePath, action: action, serializer: serializer})
+		result = append(result, &actionHandler{alias: actionAlias, routePath: routePath, action: action})
 	}
 	return result
 }
@@ -145,7 +147,6 @@ func fetchServices(context moleculer.Context) []map[string]interface{} {
 //filterActions with a list of services collect all actions, applyfilter based on
 // whitelist settings and create action handlers for each action.
 func filterActions(context moleculer.Context, settings map[string]interface{}, services []map[string]interface{}) []*actionHandler {
-	serializer := serializer.CreateJSONSerializer(context.Logger())
 	result := []*actionHandler{}
 	routes := settings["routes"].([]map[string]interface{})
 	for _, route := range routes {
@@ -164,7 +165,7 @@ func filterActions(context moleculer.Context, settings map[string]interface{}, s
 				}
 			}
 		}
-		for _, actionHand := range createActionHandlers(route, filteredActions, &serializer) {
+		for _, actionHand := range createActionHandlers(route, filteredActions) {
 			result = append(result, actionHand)
 		}
 	}
@@ -293,30 +294,22 @@ func createReverseProxy(proxySettings map[string]interface{}, instance *molecule
 }
 
 func getAddress(instance *moleculer.Service) string {
-	fmt.Println("final instanceSettings: ", instance.Settings)
 	ip := instance.Settings["ip"].(string)
 	port := instance.Settings["port"].(string)
 	return fmt.Sprint(ip, ":", port)
 }
 
 // ioServer checks service settings and if enabled create an socket.io server.
-func ioServer(context moleculer.BrokerContext, instance *moleculer.Service, router *mux.Router) *socketio.Server {
+func ioServer(context moleculer.BrokerContext, instance *moleculer.Service) (*gosocketio.Server, string) {
 	if instance.Settings["socket.io"] != nil && instance.Settings["socket.io"] != "" {
 		path, ok := instance.Settings["socket.io"].(string)
 		if ok {
 			context.Logger().Debug("socket.io settings found -> binding socket.io on path: ", path)
 			ioserver := createIOServer(context)
-			go (func() {
-				err := ioserver.Serve()
-				if err != nil {
-					context.Logger().Error("Error while serving socker io. error: ", err)
-				}
-			})()
-			router.Handle(path, ioserver)
-			return ioserver
+			return ioserver, path
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 //Service create the service schema for the API Gateway service.
@@ -330,7 +323,6 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 	}
 	serviceSettings := service.MergeSettings(allSettings...)
 	var server *http.Server
-	var ioserver *socketio.Server
 	var actionsRouter *mux.Router
 	rootRouter := mux.NewRouter()
 
@@ -338,7 +330,10 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 		instance = &svc
 		address := getAddress(instance)
 		server = &http.Server{Addr: address}
-		ioserver = ioServer(context, instance, rootRouter)
+		ioserver, ioPath := ioServer(context, instance)
+		if ioserver != nil {
+			rootRouter.Handle(ioPath, ioserver)
+		}
 		reverseProxy, hasReverseProxy := instance.Settings["reverseProxy"].(map[string]interface{})
 		if hasReverseProxy {
 			proxySettings := service.MergeSettings(defaultReverseProxy, reverseProxy)
@@ -366,9 +361,6 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 			if err != nil {
 				context.Logger().Error("Error shutting down server - error: ", err)
 			}
-		}
-		if ioserver != nil {
-			ioserver.Close()
 		}
 	}
 
