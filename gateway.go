@@ -14,7 +14,6 @@ import (
 	"github.com/moleculer-go/moleculer/payload"
 	"github.com/moleculer-go/moleculer/serializer"
 	"github.com/moleculer-go/moleculer/service"
-	gosocketio "github.com/mtfelian/golang-socketio"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -299,14 +298,13 @@ func getAddress(instance *moleculer.Service) string {
 	return fmt.Sprint(ip, ":", port)
 }
 
-// ioServer checks service settings and if enabled create an socket.io server.
-func ioServer(context moleculer.BrokerContext, instance *moleculer.Service) (*gosocketio.Server, string) {
+// socketServer checks service settings and if enabled create an socket.io server.
+func socketServer(context moleculer.BrokerContext, instance *moleculer.Service) (*WebSocketPubSub, string) {
 	if instance.Settings["socket.io"] != nil && instance.Settings["socket.io"] != "" {
 		path, ok := instance.Settings["socket.io"].(string)
 		if ok {
 			context.Logger().Debug("socket.io settings found -> binding socket.io on path: ", path)
-			ioserver := createIOServer(context)
-			return ioserver, path
+			return NewWebSocketPubSub(context), path
 		}
 	}
 	return nil, ""
@@ -330,9 +328,9 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 		instance = &svc
 		address := getAddress(instance)
 		server = &http.Server{Addr: address}
-		ioserver, ioPath := ioServer(context, instance)
-		if ioserver != nil {
-			rootRouter.Handle(ioPath, ioserver)
+		socketServer, socketPath := socketServer(context, instance)
+		if socketServer != nil {
+			rootRouter.Handle(socketPath, socketServer.Handler())
 		}
 		reverseProxy, hasReverseProxy := instance.Settings["reverseProxy"].(map[string]interface{})
 		if hasReverseProxy {
