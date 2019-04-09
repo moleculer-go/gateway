@@ -9,6 +9,7 @@ import (
 
 	"github.com/moleculer-go/moleculer/payload"
 	"github.com/moleculer-go/moleculer/util"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gorilla/websocket"
 	"github.com/moleculer-go/moleculer"
@@ -107,38 +108,46 @@ type WebSocketClient struct {
 	closeConn         func(*websocket.Conn)
 }
 
+func receiveMessage(conn *websocket.Conn) (moleculer.Payload, error) {
+	_, bts, err := conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+	return jsonSerializer.BytesToPayload(&bts), err
+}
+
+func sendMessage(conn *websocket.Conn, msg moleculer.Payload) error {
+	return conn.WriteMessage(websocket.TextMessage, jsonSerializer.PayloadToBytes(msg))
+}
+
+func prepareConnection(conn *websocket.Conn) {
+	conn.SetReadLimit(maxMessageSize)
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+}
+
+func closeConn(conn *websocket.Conn) {
+	conn.Close()
+}
+
 func newWebSocketClient(server *WebSocketPubSub, conn *websocket.Conn, id string) *WebSocketClient {
 	return &WebSocketClient{
-		server:      server,
-		conn:        conn,
-		id:          id,
-		outChan:     make(chan moleculer.Payload),
-		inChan:      make(chan string),
-		receiveDone: make(chan bool, 1),
-		sendDone:    make(chan bool, 1),
-		onClose:     func() {},
-		closed:      false,
-		receiveMessage: func(conn *websocket.Conn) (moleculer.Payload, error) {
-			_, bts, err := conn.ReadMessage()
-			if err != nil {
-				return nil, err
-			}
-			return jsonSerializer.BytesToPayload(&bts), err
-		},
-		sendMessage: func(conn *websocket.Conn, msg moleculer.Payload) error {
-			return conn.WriteMessage(websocket.TextMessage, jsonSerializer.PayloadToBytes(msg))
-		},
-		prepareConnection: func(conn *websocket.Conn) {
-			conn.SetReadLimit(maxMessageSize)
-			conn.SetReadDeadline(time.Now().Add(pongWait))
-			conn.SetPongHandler(func(string) error {
-				conn.SetReadDeadline(time.Now().Add(pongWait))
-				return nil
-			})
-		},
-		closeConn: func(conn *websocket.Conn) {
-			conn.Close()
-		},
+		server:            server,
+		conn:              conn,
+		id:                id,
+		outChan:           make(chan moleculer.Payload),
+		inChan:            make(chan string),
+		receiveDone:       make(chan bool, 1),
+		sendDone:          make(chan bool, 1),
+		onClose:           func() {},
+		closed:            false,
+		receiveMessage:    receiveMessage,
+		sendMessage:       sendMessage,
+		prepareConnection: prepareConnection,
+		closeConn:         closeConn,
 	}
 }
 
@@ -172,6 +181,20 @@ const (
 	pingPeriod     = (pongWait * 9) / 10
 )
 
+func errorCountCheck(logger *log.Entry, maxErrors int) func(err error) bool {
+	errorCount := 0
+	return func(err error) bool {
+		if err != nil {
+			logger.Trace("Error sending/receiving msg - error: ", err)
+			errorCount++
+			if errorCount >= maxErrors {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 //send loops while there is not a doneChan signal
 //and on each look check if there is output in the outChan
 // if there is sends a message down the websocket to the client.
@@ -181,6 +204,7 @@ func (wc *WebSocketClient) send() {
 		ticker.Stop()
 		wc.closeConn(wc.conn)
 	}()
+	shouldEnd := errorCountCheck(wc.server.context.Logger(), 5)
 	for {
 		select {
 		case <-wc.sendDone:
@@ -189,11 +213,8 @@ func (wc *WebSocketClient) send() {
 		// send data to client
 		case msg := <-wc.outChan:
 			err := wc.sendMessage(wc.conn, msg)
-			if err == io.EOF {
-				wc.stop()
+			if shouldEnd(err) {
 				return
-			} else if err != nil {
-				wc.server.context.Logger().Trace("Error sending msg - error: ", err)
 			}
 		case <-ticker.C:
 			wc.conn.SetWriteDeadline(time.Now().Add(writeWait))
@@ -222,8 +243,7 @@ func shouldCloseConn(err error) bool {
 // websocket. where there is delivers to the message func.
 func (wc *WebSocketClient) receive() {
 	defer wc.closeConn(wc.conn)
-	errorCount := 0
-	maxErrors := 5
+	shouldEnd := errorCountCheck(wc.server.context.Logger(), 5)
 	for {
 		select {
 		case <-wc.receiveDone:
@@ -232,16 +252,9 @@ func (wc *WebSocketClient) receive() {
 		// read data from websocket connection
 		default:
 			msg, err := wc.receiveMessage(wc.conn)
-			if err != nil {
-				wc.server.context.Logger().Debug("Error receiving json msg - error: ", err)
-				errorCount++
-				if errorCount > maxErrors {
-					return
-				} else {
-					time.Sleep(time.Millisecond)
-				}
+			if shouldEnd(err) {
+				return
 			}
-
 			if msg.Get("topic").Exists() {
 				go wc.server.pub(wc, msg.Get("topic").String(), msg.Get("payload"))
 			}

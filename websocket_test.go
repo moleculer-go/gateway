@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -136,11 +135,11 @@ var _ = Describe("API Gateway WebSockets", func() {
 			Expect(sendDone).Should(BeTrue())
 		})
 
-		It("send should stop when receive an io.EOF", func() {
+		It("send should stop when receive an error", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
 			wc.sendMessage = func(conn *websocket.Conn, msg moleculer.Payload) error {
-				return io.EOF
+				return errors.New("some error!")
 			}
 			wc.prepareConnection = func(conn *websocket.Conn) {}
 			wc.closeConn = func(conn *websocket.Conn) {}
@@ -151,29 +150,11 @@ var _ = Describe("API Gateway WebSockets", func() {
 			}()
 			Expect(sendDone).Should(BeFalse())
 			wc.outChan <- payload.Empty()
-			time.Sleep(time.Millisecond)
-			Expect(sendDone).Should(BeTrue())
-		})
-
-		It("send should ignore other errors", func() {
-			conn := websocket.Conn{}
-			wc := newWebSocketClient(ps, &conn, "id")
-			wc.sendMessage = func(conn *websocket.Conn, msg moleculer.Payload) error {
-				return errors.New("some error")
-			}
-			wc.prepareConnection = func(conn *websocket.Conn) {}
-			wc.closeConn = func(conn *websocket.Conn) {}
-			sendDone := false
-			go func() {
-				wc.send()
-				sendDone = true
-			}()
-			Expect(sendDone).Should(BeFalse())
+			wc.outChan <- payload.Empty()
+			wc.outChan <- payload.Empty()
+			wc.outChan <- payload.Empty()
 			wc.outChan <- payload.Empty()
 			time.Sleep(time.Millisecond * 10)
-			Expect(sendDone).Should(BeFalse())
-			wc.sendDone <- true
-			time.Sleep(time.Millisecond)
 			Expect(sendDone).Should(BeTrue())
 		})
 

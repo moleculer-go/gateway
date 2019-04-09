@@ -163,7 +163,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			//start it again with modified service
 			tempBkr = createTempBroker(mem, "reborn")
 			tempBkr.Start()
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 
 			response, err = http.Get(host + "/temp/stuff?content=HellowAgain")
 			Expect(err).Should(Succeed())
