@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var logLevel = "Error"
+var logLevel = "error"
 
 func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 	broker := broker.New(&moleculer.Config{
@@ -117,11 +117,6 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			servicesBkr.Start()
 			gatewayBkr.Start()
 			time.Sleep(300 * time.Millisecond)
-
-			value := func(param string) string {
-				return ""
-			}
-			fmt.Println("type for func() --> ", fmt.Sprintf("%T", value))
 
 			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())

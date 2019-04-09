@@ -205,9 +205,9 @@ var defaultSettings = map[string]interface{}{
 	// reverseProxy define a reverse proxy for local development and avoid CORS issues :)
 	"reverseProxy": false,
 
-	// socket.io path where the server will listen for websocket connections.
-	// when set enables mapping of moleculer events to socket.io events.
-	"socket.io": "/ws/",
+	// websockets path where the server will listen for websocket connections.
+	// when set enables mapping of moleculer events to websockets events.
+	"websockets": "/ws/",
 
 	// Exposed port
 	"port": "3100",
@@ -298,12 +298,12 @@ func getAddress(instance *moleculer.Service) string {
 	return fmt.Sprint(ip, ":", port)
 }
 
-// socketServer checks service settings and if enabled create an socket.io server.
+// socketServer checks service settings and if enabled create an websockets server.
 func socketServer(context moleculer.BrokerContext, instance *moleculer.Service) (*WebSocketPubSub, string) {
-	if instance.Settings["socket.io"] != nil && instance.Settings["socket.io"] != "" {
-		path, ok := instance.Settings["socket.io"].(string)
+	if instance.Settings["websockets"] != nil && instance.Settings["websockets"] != "" {
+		path, ok := instance.Settings["websockets"].(string)
 		if ok {
-			context.Logger().Debug("socket.io settings found -> binding socket.io on path: ", path)
+			context.Logger().Debug("websockets settings found -> binding websockets on path: ", path)
 			return NewWebSocketPubSub(context), path
 		}
 	}
@@ -330,7 +330,7 @@ func Service(settings ...map[string]interface{}) moleculer.Service {
 		server = &http.Server{Addr: address}
 		socketServer, socketPath := socketServer(context, instance)
 		if socketServer != nil {
-			rootRouter.Handle(socketPath, socketServer.Handler())
+			rootRouter.Handle(socketPath, socketServer)
 		}
 		reverseProxy, hasReverseProxy := instance.Settings["reverseProxy"].(map[string]interface{})
 		if hasReverseProxy {

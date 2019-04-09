@@ -3,13 +3,15 @@ package gateway
 import (
 	"io"
 	"net/http"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/moleculer-go/moleculer/payload"
 	"github.com/moleculer-go/moleculer/util"
 
+	"github.com/gorilla/websocket"
 	"github.com/moleculer-go/moleculer"
-	"golang.org/x/net/websocket"
 )
 
 type topicEntry struct {
@@ -71,6 +73,10 @@ func (te *topicEntry) addClient(client *WebSocketClient) {
 	//when client close.. remove from the list of clients
 	//inside hte topic entry
 	client.onClose = func() {
+		if client.closed {
+			return
+		}
+		client.closed = true
 		list := make([]*WebSocketClient, len(te.clients)-1)
 		for _, item := range te.clients {
 			if item.id != client.id {
@@ -86,16 +92,19 @@ type WebSocketClient struct {
 	server      *WebSocketPubSub
 	conn        *websocket.Conn
 	id          string
-	outChan     chan Message
+	outChan     chan moleculer.Payload
 	inChan      chan string
 	receiveDone chan bool
 	sendDone    chan bool
 
-	name           string
-	value          string
-	onClose        func()
-	receiveMessage func(conn *websocket.Conn) (Message, error)
-	sendMessage    func(conn *websocket.Conn, msg Message) error
+	name              string
+	value             string
+	onClose           func()
+	closed            bool
+	receiveMessage    func(*websocket.Conn) (moleculer.Payload, error)
+	sendMessage       func(*websocket.Conn, moleculer.Payload) error
+	prepareConnection func(*websocket.Conn)
+	closeConn         func(*websocket.Conn)
 }
 
 func newWebSocketClient(server *WebSocketPubSub, conn *websocket.Conn, id string) *WebSocketClient {
@@ -103,36 +112,48 @@ func newWebSocketClient(server *WebSocketPubSub, conn *websocket.Conn, id string
 		server:      server,
 		conn:        conn,
 		id:          id,
-		outChan:     make(chan Message),
+		outChan:     make(chan moleculer.Payload),
 		inChan:      make(chan string),
 		receiveDone: make(chan bool, 1),
 		sendDone:    make(chan bool, 1),
 		onClose:     func() {},
-		receiveMessage: func(conn *websocket.Conn) (Message, error) {
-			var msg Message
-			err := websocket.JSON.Receive(conn, &msg)
-			return msg, err
+		closed:      false,
+		receiveMessage: func(conn *websocket.Conn) (moleculer.Payload, error) {
+			_, bts, err := conn.ReadMessage()
+			if err != nil {
+				return nil, err
+			}
+			return jsonSerializer.BytesToPayload(&bts), err
 		},
-		sendMessage: func(conn *websocket.Conn, msg Message) error {
-			return websocket.JSON.Send(conn, msg)
+		sendMessage: func(conn *websocket.Conn, msg moleculer.Payload) error {
+			return conn.WriteMessage(websocket.TextMessage, jsonSerializer.PayloadToBytes(msg))
+		},
+		prepareConnection: func(conn *websocket.Conn) {
+			conn.SetReadLimit(maxMessageSize)
+			conn.SetReadDeadline(time.Now().Add(pongWait))
+			conn.SetPongHandler(func(string) error {
+				conn.SetReadDeadline(time.Now().Add(pongWait))
+				return nil
+			})
+		},
+		closeConn: func(conn *websocket.Conn) {
+			conn.Close()
 		},
 	}
 }
 
 // pub publishes a message to the client.
-func (wc *WebSocketClient) pub(topic string, payload moleculer.Payload) {
-	msg := Message{topic, payload.RawMap()}
-	go func(outChan chan Message) { outChan <- msg }(wc.outChan)
-}
-
-type Message struct {
-	event   string                 `json:"event"`
-	payload map[string]interface{} `json:"payload"`
+func (wc *WebSocketClient) pub(topic string, p moleculer.Payload) {
+	msg := payload.Empty().Add("topic", topic).Add("payload", p)
+	go func() {
+		wc.outChan <- msg
+	}()
 }
 
 // start stats both receive and send pumps.
 // it means that the client will start receiving and sending msgs.
 func (wc *WebSocketClient) start() {
+	wc.prepareConnection(wc.conn)
 	go wc.receive()
 	go wc.send()
 }
@@ -144,10 +165,22 @@ func (wc *WebSocketClient) stop() {
 	wc.receiveDone <- true
 }
 
+const (
+	writeWait      = 10 * time.Second
+	maxMessageSize = int64(1024)
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+)
+
 //send loops while there is not a doneChan signal
 //and on each look check if there is output in the outChan
 // if there is sends a message down the websocket to the client.
 func (wc *WebSocketClient) send() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		wc.closeConn(wc.conn)
+	}()
 	for {
 		select {
 		case <-wc.sendDone:
@@ -162,14 +195,35 @@ func (wc *WebSocketClient) send() {
 			} else if err != nil {
 				wc.server.context.Logger().Trace("Error sending msg - error: ", err)
 			}
+		case <-ticker.C:
+			wc.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := wc.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
+}
+
+func shouldCloseConn(err error) bool {
+	if err == nil {
+		return false
+	}
+	if err == io.EOF {
+		return true
+	}
+	if strings.Contains(err.Error(), "websocket: close 1001") {
+		return true
+	}
+	return false
 }
 
 // receive loops while there is not a doneChan signal
 // and one each loop check if there is a JSON message on the
 // websocket. where there is delivers to the message func.
 func (wc *WebSocketClient) receive() {
+	defer wc.closeConn(wc.conn)
+	errorCount := 0
+	maxErrors := 5
 	for {
 		select {
 		case <-wc.receiveDone:
@@ -178,16 +232,20 @@ func (wc *WebSocketClient) receive() {
 		// read data from websocket connection
 		default:
 			msg, err := wc.receiveMessage(wc.conn)
-			if err == io.EOF {
-				wc.stop()
-				return
-			} else if err != nil {
-				wc.server.context.Logger().Trace("Error receiving json msg - error: ", err)
-			} else {
-				go wc.server.pub(wc, msg.event, payload.New(msg.payload))
+			if err != nil {
+				wc.server.context.Logger().Debug("Error receiving json msg - error: ", err)
+				errorCount++
+				if errorCount > maxErrors {
+					return
+				} else {
+					time.Sleep(time.Millisecond)
+				}
+			}
+
+			if msg.Get("topic").Exists() {
+				go wc.server.pub(wc, msg.Get("topic").String(), msg.Get("payload"))
 			}
 		}
-
 	}
 }
 
@@ -195,21 +253,18 @@ type WebSocketPubSub struct {
 	clients       *sync.Map
 	subscriptions *sync.Map
 	clientTopics  *sync.Map
-	ws            *websocket.Server
 	context       moleculer.BrokerContext
 }
 
-func (ps *WebSocketPubSub) Handler() http.Handler {
-	return ps.ws
+func (ps *WebSocketPubSub) newClientConnection(conn *websocket.Conn) {
+	ps.context.Logger().Info("websocket new connection")
+	id := util.RandomString(12)
+	client := newWebSocketClient(ps, conn, id)
+	ps.clients.Store(id, client)
+	go client.start()
 }
 
 func (ps *WebSocketPubSub) init() {
-	ps.ws.Handler = func(conn *websocket.Conn) {
-		id := util.RandomString(12)
-		client := newWebSocketClient(ps, conn, id)
-		ps.clients.Store(id, client)
-		go client.start()
-	}
 	ps.sub("subscribe", ps.onSubscribe)
 }
 
@@ -271,12 +326,22 @@ func (ps *WebSocketPubSub) onSubscribe(client *WebSocketClient, params moleculer
 	logger.Debug("onSubscribe Delivery Started! -> target: ", target)
 }
 
+var upgrader = websocket.Upgrader{}
+
+func (ps *WebSocketPubSub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		ps.context.Logger().Error("Error on websocket.upgrade - error:", err)
+		return
+	}
+	ps.newClientConnection(conn)
+}
+
 func NewWebSocketPubSub(context moleculer.BrokerContext) *WebSocketPubSub {
 	ps := &WebSocketPubSub{
 		clients:       &sync.Map{},
 		subscriptions: &sync.Map{},
 		clientTopics:  &sync.Map{},
-		ws:            &websocket.Server{},
 		context:       context,
 	}
 	ps.init()

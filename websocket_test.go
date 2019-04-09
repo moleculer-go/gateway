@@ -3,16 +3,32 @@ package gateway
 import (
 	"errors"
 	"io"
+	"net/http"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/context"
 	"github.com/moleculer-go/moleculer/payload"
 	"github.com/moleculer-go/moleculer/test"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"golang.org/x/net/websocket"
 )
+
+type mockWriter struct {
+}
+
+func (w mockWriter) Header() http.Header {
+	return http.Header{}
+}
+
+func (w mockWriter) Write([]byte) (int, error) {
+	return 0, nil
+}
+
+func (w mockWriter) WriteHeader(statusCode int) {
+
+}
 
 var _ = Describe("API Gateway WebSockets", func() {
 
@@ -37,9 +53,10 @@ var _ = Describe("API Gateway WebSockets", func() {
 		It("receive should stop when a signal is sent on doneChan", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
-			wc.receiveMessage = func(conn *websocket.Conn) (Message, error) {
-				return Message{"", map[string]interface{}{}}, nil
+			wc.receiveMessage = func(conn *websocket.Conn) (moleculer.Payload, error) {
+				return payload.Empty(), nil
 			}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			receiveDone := false
 			go func() {
 				wc.receive()
@@ -52,37 +69,20 @@ var _ = Describe("API Gateway WebSockets", func() {
 			Expect(receiveDone).Should(BeTrue())
 		})
 
-		It("receive should stop when receive an io.EOF", func() {
+		It("receive should stop when receive over 5 errors", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
-			wc.receiveMessage = func(conn *websocket.Conn) (Message, error) {
-				return Message{}, io.EOF
+			wc.receiveMessage = func(conn *websocket.Conn) (moleculer.Payload, error) {
+				return payload.Empty(), errors.New("some error...")
 			}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			receiveDone := false
 			go func() {
 				wc.receive()
 				receiveDone = true
 			}()
 			Expect(receiveDone).Should(BeFalse())
-			time.Sleep(time.Millisecond)
-			Expect(receiveDone).Should(BeTrue())
-		})
-		It("receive should ignore other errors", func() {
-			conn := websocket.Conn{}
-			wc := newWebSocketClient(ps, &conn, "id")
-			wc.receiveMessage = func(conn *websocket.Conn) (Message, error) {
-				return Message{}, errors.New("some error")
-			}
-			receiveDone := false
-			go func() {
-				wc.receive()
-				receiveDone = true
-			}()
-			Expect(receiveDone).Should(BeFalse())
-			time.Sleep(time.Millisecond)
-			Expect(receiveDone).Should(BeFalse())
-			wc.receiveDone <- true
-			time.Sleep(time.Millisecond)
+			time.Sleep(time.Millisecond * 10)
 			Expect(receiveDone).Should(BeTrue())
 		})
 
@@ -96,10 +96,11 @@ var _ = Describe("API Gateway WebSockets", func() {
 			})
 
 			receiveMessageCalled := false
-			wc.receiveMessage = func(conn *websocket.Conn) (Message, error) {
+			wc.receiveMessage = func(conn *websocket.Conn) (moleculer.Payload, error) {
 				receiveMessageCalled = true
-				return Message{"endof.atlantis", map[string]interface{}{}}, nil
+				return payload.Empty().Add("topic", "endof.atlantis").Add("payload", map[string]interface{}{}), nil
 			}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			receiveDone := false
 			go func() {
 				wc.receive()
@@ -118,9 +119,11 @@ var _ = Describe("API Gateway WebSockets", func() {
 		It("send should stop when a signal is sent on doneChan", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
-			wc.sendMessage = func(conn *websocket.Conn, msg Message) error {
+			wc.sendMessage = func(conn *websocket.Conn, msg moleculer.Payload) error {
 				return nil
 			}
+			wc.prepareConnection = func(conn *websocket.Conn) {}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			sendDone := false
 			go func() {
 				wc.send()
@@ -136,16 +139,18 @@ var _ = Describe("API Gateway WebSockets", func() {
 		It("send should stop when receive an io.EOF", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
-			wc.sendMessage = func(conn *websocket.Conn, msg Message) error {
+			wc.sendMessage = func(conn *websocket.Conn, msg moleculer.Payload) error {
 				return io.EOF
 			}
+			wc.prepareConnection = func(conn *websocket.Conn) {}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			sendDone := false
 			go func() {
 				wc.send()
 				sendDone = true
 			}()
 			Expect(sendDone).Should(BeFalse())
-			wc.outChan <- Message{}
+			wc.outChan <- payload.Empty()
 			time.Sleep(time.Millisecond)
 			Expect(sendDone).Should(BeTrue())
 		})
@@ -153,16 +158,18 @@ var _ = Describe("API Gateway WebSockets", func() {
 		It("send should ignore other errors", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
-			wc.sendMessage = func(conn *websocket.Conn, msg Message) error {
+			wc.sendMessage = func(conn *websocket.Conn, msg moleculer.Payload) error {
 				return errors.New("some error")
 			}
+			wc.prepareConnection = func(conn *websocket.Conn) {}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			sendDone := false
 			go func() {
 				wc.send()
 				sendDone = true
 			}()
 			Expect(sendDone).Should(BeFalse())
-			wc.outChan <- Message{}
+			wc.outChan <- payload.Empty()
 			time.Sleep(time.Millisecond * 10)
 			Expect(sendDone).Should(BeFalse())
 			wc.sendDone <- true
@@ -174,10 +181,12 @@ var _ = Describe("API Gateway WebSockets", func() {
 			conn := websocket.Conn{}
 			wc := newWebSocketClient(ps, &conn, "id")
 			messageSent := false
-			wc.sendMessage = func(conn *websocket.Conn, msg Message) error {
+			wc.sendMessage = func(conn *websocket.Conn, msg moleculer.Payload) error {
 				messageSent = true
 				return nil
 			}
+			wc.prepareConnection = func(conn *websocket.Conn) {}
+			wc.closeConn = func(conn *websocket.Conn) {}
 			sendDone := false
 			go func() {
 				wc.send()
@@ -186,7 +195,7 @@ var _ = Describe("API Gateway WebSockets", func() {
 			Expect(sendDone).Should(BeFalse())
 			Expect(messageSent).Should(BeFalse())
 
-			wc.outChan <- Message{}
+			wc.outChan <- payload.Empty()
 			time.Sleep(time.Millisecond * 10)
 			Expect(sendDone).Should(BeFalse())
 			Expect(messageSent).Should(BeTrue())

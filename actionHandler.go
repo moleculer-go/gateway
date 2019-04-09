@@ -64,13 +64,15 @@ var resultParseErrorStatusCode = 500
 
 // sendReponse send the result payload  back using the ResponseWriter
 func (handler *actionHandler) sendReponse(logger *log.Entry, result moleculer.Payload, response http.ResponseWriter) {
-	json := jsonSerializer.PayloadToBytes(result)
-	logger.Debug("Gateway SendReponse() - action: ", handler.action, " json: ", string(json))
+	var json []byte
 	if result.IsError() {
 		response.WriteHeader(errorStatusCode)
+		json = jsonSerializer.PayloadToBytes(payload.Empty().Add("error", result.Error().Error()))
 	} else {
 		response.WriteHeader(succesStatusCode)
+		json = jsonSerializer.PayloadToBytes(result)
 	}
+	logger.Debug("Gateway SendReponse() - action: ", handler.action, " json: ", string(json), " result.IsError(): ", result.IsError())
 	response.Write(json)
 }
 
