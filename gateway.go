@@ -171,11 +171,6 @@ func filterActions(context moleculer.Context, settings map[string]interface{}, s
 	return result
 }
 
-//onErrorHandler default error handler.
-func onErrorHandler() {
-	//TODO
-}
-
 var defaultRoutes = []map[string]interface{}{
 	map[string]interface{}{
 		"path": "/",
@@ -205,9 +200,9 @@ var defaultSettings = map[string]interface{}{
 	// reverseProxy define a reverse proxy for local development and avoid CORS issues :)
 	"reverseProxy": false,
 
-	// websockets path where the server will listen for websocket connections.
-	// when set enables mapping of moleculer events to websockets events.
-	"websockets": "/ws/",
+	// setupRoutes is a list of delegates to be invoked when setting up the http server.
+	// this allows for other mixins that are combined with the Http gateway
+	"setupRoutes": []func(moleculer.BrokerContext, *mux.Router){},
 
 	// Exposed port
 	"port": "3100",
@@ -243,8 +238,6 @@ var defaultSettings = map[string]interface{}{
 			//options for static module
 		},
 	},
-
-	"onError": onErrorHandler,
 }
 
 // populateActionsRouter create a new mux.router
@@ -264,129 +257,124 @@ func populateActionsRouter(context moleculer.Context, settings map[string]interf
 var defaultReverseProxy = map[string]interface{}{
 	//gateway endpoint path
 	"gatewayPath": "/api",
-
 	//reserse proxy target ip:port
 	"target": "http://localhost:3000",
 	//reserse proxy path
 	"targetPath": "/",
 }
 
+type GatewayMixin interface {
+	// RouterStarting receives a moleculer.context and mux.Router and is expected to publish a route/path using the mux.Router.
+	RouterStarting(moleculer.BrokerContext, *mux.Router)
+}
+
+type HttpService struct {
+	Settings map[string]interface{}
+	Mixins   []GatewayMixin
+	//
+	settings      map[string]interface{}
+	server        *http.Server
+	router        *mux.Router
+	actionsRouter *mux.Router
+}
+
+func (svc HttpService) Name() string {
+	return "api"
+}
+
+func (svc *HttpService) Dependencies() []string {
+	return []string{"$node"}
+}
+
 // createReverseProxy creates a reverse proxy to serve app UI content for ecample on path X and API (gateway content) on path Y.
 // used mostly for development.
-func createReverseProxy(proxySettings map[string]interface{}, instance *moleculer.Service, routes *mux.Router) *mux.Router {
+func (svc *HttpService) createReverseProxy(proxySettings map[string]interface{}) *mux.Router {
 	gatewayPath := proxySettings["gatewayPath"].(string)
 	target := proxySettings["target"].(string)
 	targetPath := proxySettings["targetPath"].(string)
 
-	targetUrl, err := url.Parse(target)
+	targetURL, err := url.Parse(target)
 	if err != nil {
 		panic(errors.New(fmt.Sprint("createReverseProxy() parameter target is invalid. It must be a valid URL! - error: ", err.Error())))
 	}
-	targetProxy := httputil.NewSingleHostReverseProxy(targetUrl)
+	targetProxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	fmt.Println("createReverseProxy() handle gatewayPath: ", gatewayPath)
-	gatewayRouter := routes.PathPrefix(gatewayPath).Subrouter()
+	gatewayRouter := svc.router.PathPrefix(gatewayPath).Subrouter()
 
 	fmt.Println("createReverseProxy() handle targetPath: ", targetPath)
-	routes.PathPrefix(targetPath).Handler(targetProxy)
+	svc.router.PathPrefix(targetPath).Handler(targetProxy)
 	return gatewayRouter
 }
 
-func getAddress(instance *moleculer.Service) string {
-	ip := instance.Settings["ip"].(string)
-	port := instance.Settings["port"].(string)
+func (svc *HttpService) getAddress() string {
+	ip := svc.settings["ip"].(string)
+	port := svc.settings["port"].(string)
 	return fmt.Sprint(ip, ":", port)
 }
 
-// socketServer checks service settings and if enabled create an websockets server.
-func socketServer(context moleculer.BrokerContext, instance *moleculer.Service) (*WebSocketPubSub, string) {
-	if instance.Settings["websockets"] != nil && instance.Settings["websockets"] != "" {
-		path, ok := instance.Settings["websockets"].(string)
-		if ok {
-			context.Logger().Debug("websockets settings found -> binding websockets on path: ", path)
-			return NewWebSocketPubSub(context), path
-		}
+func (svc *HttpService) reveserProxy(context moleculer.BrokerContext) {
+	reverseProxy, hasReverseProxy := svc.settings["reverseProxy"].(map[string]interface{})
+	if hasReverseProxy {
+		proxySettings := service.MergeSettings(defaultReverseProxy, reverseProxy)
+		context.Logger().Debug("Gateway resetHandlers() - reverse proxy enabled - proxySettings: ", proxySettings)
+		svc.actionsRouter = svc.createReverseProxy(proxySettings)
+	} else {
+		svc.actionsRouter = svc.router.PathPrefix("/").Subrouter()
 	}
-	return nil, ""
 }
 
-//Service create the service schema for the API Gateway service.
-func Service(settings ...map[string]interface{}) moleculer.Service {
-	var instance *moleculer.Service
-	allSettings := []map[string]interface{}{defaultSettings}
-	for _, set := range settings {
-		if set != nil {
-			allSettings = append(allSettings, set)
+func (svc *HttpService) startServer(context moleculer.BrokerContext) {
+	address := svc.getAddress()
+	context.Logger().Info("Server starting to listen on: ", address)
+	err := svc.server.ListenAndServe()
+	if err != nil && err.Error() != "http: Server closed" {
+		context.Logger().Error("Error listening server on: ", address, " error: ", err)
+	}
+	context.Logger().Info("Server stopped -> address: ", address)
+}
+
+// Started httpService started. It process the settings (default + params), starts a http server,
+// notify the plugins that the http server is starting.
+func (svc *HttpService) Started(context moleculer.BrokerContext, schema moleculer.ServiceSchema) {
+	context.Logger().Info("Gateway Started() called!")
+	svc.settings = service.MergeSettings(defaultSettings, svc.Settings)
+	address := svc.getAddress()
+	svc.server = &http.Server{Addr: address}
+	svc.router = mux.NewRouter()
+	svc.server.Handler = svc.router
+	for _, mixin := range svc.Mixins {
+		mixin.RouterStarting(context, svc.router)
+	}
+	svc.reveserProxy(context)
+	go svc.startServer(context)
+	go populateActionsRouter(context.(moleculer.Context), svc.settings, svc.actionsRouter)
+	context.Logger().Info("Gateway Started()")
+}
+
+func (svc *HttpService) Stopped(context moleculer.BrokerContext, schema moleculer.ServiceSchema) {
+	if svc.server != nil {
+		err := svc.server.Shutdown(nil)
+		if err != nil {
+			context.Logger().Error("Error shutting down server - error: ", err)
 		}
 	}
-	serviceSettings := service.MergeSettings(allSettings...)
-	var server *http.Server
-	var actionsRouter *mux.Router
-	rootRouter := mux.NewRouter()
+	context.Logger().Info("Gateway stopped()")
+}
 
-	serviceStarted := func(context moleculer.BrokerContext, svc moleculer.Service) {
-		instance = &svc
-		address := getAddress(instance)
-		server = &http.Server{Addr: address}
-		socketServer, socketPath := socketServer(context, instance)
-		if socketServer != nil {
-			rootRouter.Handle(socketPath, socketServer)
-		}
-		reverseProxy, hasReverseProxy := instance.Settings["reverseProxy"].(map[string]interface{})
-		if hasReverseProxy {
-			proxySettings := service.MergeSettings(defaultReverseProxy, reverseProxy)
-			context.Logger().Debug("Gateway resetHandlers() - reverse proxy enabled - proxySettings: ", proxySettings)
-			actionsRouter = createReverseProxy(proxySettings, instance, rootRouter)
-		} else {
-			actionsRouter = rootRouter.PathPrefix("/").Subrouter()
-		}
-		server.Handler = rootRouter
-		go (func() {
-			context.Logger().Info("Server starting to listen on: ", address)
-			err := server.ListenAndServe()
-			if err != nil && err.Error() != "http: Server closed" {
-				context.Logger().Error("Error listening server on: ", address, " error: ", err)
-			}
-			context.Logger().Info("Server stopped -> address: ", address)
-		})()
-		go populateActionsRouter(context.(moleculer.Context), instance.Settings, actionsRouter)
+// serviceAdded method used to handle the service added event
+func (svc *HttpService) serviceAdded(context moleculer.Context, params moleculer.Payload) {
+	if svc.actionsRouter == nil {
+		return
 	}
+	go populateActionsRouter(context, svc.settings, svc.actionsRouter)
+}
 
-	serviceStoped := func(context moleculer.BrokerContext, svc moleculer.Service) {
-		context.Logger().Info("Gateway stopped()")
-		if server != nil {
-			err := server.Shutdown(nil)
-			if err != nil {
-				context.Logger().Error("Error shutting down server - error: ", err)
-			}
-		}
-	}
-
-	return moleculer.Service{
-		Name:         "api",
-		Settings:     serviceSettings,
-		Dependencies: []string{"$node"},
-		Started:      serviceStarted,
-		Stopped:      serviceStoped,
-		Events: []moleculer.Event{
-			moleculer.Event{
-				Name: "$registry.service.added",
-				Handler: func(context moleculer.Context, params moleculer.Payload) {
-					if instance == nil || actionsRouter == nil {
-						return
-					}
-					go populateActionsRouter(context.(moleculer.Context), instance.Settings, actionsRouter)
-				},
-			},
-			moleculer.Event{
-				Name: "$registry.service.removed",
-				Handler: func(context moleculer.Context, params moleculer.Payload) {
-					// At the moment populateActionsRouter cannot remove routes :(
-					// so it does make sense to call it when a service is removed.
-					//the route will be there.. and moleculer will reject the call
-					//go populateActionsRouter(context.(moleculer.Context), instance.Settings, actionsRouter)
-				},
-			},
+func (svc *HttpService) Events() []moleculer.Event {
+	return []moleculer.Event{
+		{
+			Name:    "$registry.service.added",
+			Handler: svc.serviceAdded,
 		},
 	}
 }

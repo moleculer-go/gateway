@@ -1,8 +1,7 @@
-package gateway
+package websocket
 
 import (
 	"errors"
-	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -14,21 +13,6 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-type mockWriter struct {
-}
-
-func (w mockWriter) Header() http.Header {
-	return http.Header{}
-}
-
-func (w mockWriter) Write([]byte) (int, error) {
-	return 0, nil
-}
-
-func (w mockWriter) WriteHeader(statusCode int) {
-
-}
-
 var _ = Describe("API Gateway WebSockets", func() {
 
 	Describe("WebSocketClient", func() {
@@ -37,7 +21,7 @@ var _ = Describe("API Gateway WebSockets", func() {
 			moleculer.Config{},
 		)
 		bkrContext := context.BrokerContext(delegates)
-		ps := NewWebSocketPubSub(bkrContext)
+		ps := newWebSocketServer(bkrContext)
 
 		It("pub should send the msg to the outChan", func() {
 			conn := websocket.Conn{}
@@ -188,107 +172,16 @@ var _ = Describe("API Gateway WebSockets", func() {
 
 	})
 
-	Describe("WebSocketPubSub", func() {
-
-		It("onSubscribe should create a topic entry anda add the client", func() {
-			delegates := test.DelegatesWithIdAndConfig(
-				"onSubscribe_node",
-				moleculer.Config{},
-			)
-			addServiceCalled := false
-			delegates.AddService = func(svcs ...moleculer.Service) {
-				addServiceCalled = true
-			}
-			bkrContext := context.BrokerContext(delegates)
-			ps := NewWebSocketPubSub(bkrContext)
-			client := &WebSocketClient{}
-
-			topic := "champ.champ"
-			ps.onSubscribe(client, payload.New(map[string]interface{}{
-				"topic": topic,
-				"name":  "deviceToken",
-				"value": "123oikjh",
-			}))
-			Expect(addServiceCalled).Should(BeTrue())
-			value, exists := ps.clientTopics.Load(topic)
-			Expect(exists).Should(BeTrue())
-			Expect(value).ShouldNot(BeNil())
-			te := value.(*topicEntry)
-			Expect(te.topic).Should(Equal(topic))
-			Expect(len(te.clients)).Should(Equal(1))
-		})
-
-		It("onSubscribe should reuse a topic entry and add a new client", func() {
-			addServiceCalled := 0
-			delegates := test.DelegatesWithIdAndConfig(
-				"onSubscribe_node",
-				moleculer.Config{},
-			)
-			delegates.AddService = func(svcs ...moleculer.Service) {
-				addServiceCalled++
-			}
-			bkrContext := context.BrokerContext(delegates)
-			ps := NewWebSocketPubSub(bkrContext)
-			client := &WebSocketClient{}
-
-			topic := "champ.champ"
-			ps.onSubscribe(client, payload.New(map[string]interface{}{
-				"topic": topic,
-				"name":  "deviceToken",
-				"value": "123oikjh",
-			}))
-			Expect(addServiceCalled).Should(Equal(1))
-			value, exists := ps.clientTopics.Load(topic)
-			Expect(exists).Should(BeTrue())
-			Expect(value).ShouldNot(BeNil())
-			te := value.(*topicEntry)
-			Expect(te.topic).Should(Equal(topic))
-			Expect(len(te.clients)).Should(Equal(1))
-			Expect(te.clients[0].name).Should(Equal("deviceToken"))
-			Expect(te.clients[0].value).Should(Equal("123oikjh"))
-
-			ps.onSubscribe(client, payload.New(map[string]interface{}{
-				"topic": topic,
-				"name":  "deviceToken",
-				"value": "ssssss",
-			}))
-			Expect(addServiceCalled).Should(Equal(1))
-			value, exists = ps.clientTopics.Load(topic)
-			Expect(exists).Should(BeTrue())
-			Expect(value).ShouldNot(BeNil())
-			te = value.(*topicEntry)
-			Expect(te.topic).Should(Equal(topic))
-			Expect(len(te.clients)).Should(Equal(2))
-			Expect(te.clients[0].name).Should(Equal("deviceToken"))
-			Expect(te.clients[0].value).Should(Equal("ssssss"))
-
-			ps.onSubscribe(client, payload.New(map[string]interface{}{
-				"topic": topic + ".v2",
-				"name":  "deviceToken",
-				"value": "ssssss",
-			}))
-			Expect(addServiceCalled).Should(Equal(2))
-			value, exists = ps.clientTopics.Load(topic + ".v2")
-			Expect(exists).Should(BeTrue())
-			Expect(value).ShouldNot(BeNil())
-			te = value.(*topicEntry)
-			Expect(te.topic).Should(Equal(topic + ".v2"))
-			Expect(len(te.clients)).Should(Equal(1))
-			Expect(te.clients[0].name).Should(Equal("deviceToken"))
-			Expect(te.clients[0].value).Should(Equal("ssssss"))
-		})
+	Describe("WebSocketServer", func() {
 
 		It("sub should create a subscription for the topic and handler", func() {
 			noop := func(client *WebSocketClient, params moleculer.Payload) {}
-			// delegates.AddService = func(svcs ...moleculer.Service) {
-			// 	addServiceCalled++
-			// }
 			delegates := test.DelegatesWithIdAndConfig(
 				"sub_node",
 				moleculer.Config{},
 			)
 			bkrContext := context.BrokerContext(delegates)
-			ps := NewWebSocketPubSub(bkrContext)
+			ps := newWebSocketServer(bkrContext)
 			topic := "happy.ending"
 			ps.sub(topic, noop)
 			temp, exists := ps.subscriptions.Load(topic)
@@ -324,14 +217,14 @@ var _ = Describe("API Gateway WebSockets", func() {
 			client := &WebSocketClient{}
 
 			It("should return 0 when no handlers are  found for the topic", func() {
-				ps := NewWebSocketPubSub(bkrContext)
+				ps := newWebSocketServer(bkrContext)
 				topic := "lord.rings"
 				params := payload.Empty()
 				Expect(ps.pub(client, topic, params)).Should(Equal(0))
 			})
 
 			It("pub should invoke handlers attached o the topic", func() {
-				ps := NewWebSocketPubSub(bkrContext)
+				ps := newWebSocketServer(bkrContext)
 				topic := "lord.rings"
 				subCalled := false
 				ps.sub(topic, func(client *WebSocketClient, params moleculer.Payload) {
