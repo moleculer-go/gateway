@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/moleculer-go/moleculer"
 	gateway "github.com/moleculer-go/moleculer-web"
+
+	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/broker"
 	"github.com/moleculer-go/moleculer/payload"
 	"github.com/moleculer-go/moleculer/transit/memory"
@@ -16,7 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var logLevel = "Error"
+var logLevel = "info"
 
 func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 	broker := broker.New(&moleculer.Config{
@@ -28,7 +29,7 @@ func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 		},
 	})
 
-	broker.AddService(moleculer.Service{
+	broker.Publish(moleculer.ServiceSchema{
 		Name: "printer",
 		Actions: []moleculer.Action{
 			{
@@ -61,9 +62,9 @@ func createTempBroker(mem *memory.SharedMemory, prefix string) broker.ServiceBro
 			return &transport
 		},
 	})
-	broker.AddService(moleculer.Service{
+	broker.Publish(moleculer.ServiceSchema{
 		Name: "temp",
-		Started: func(ctx moleculer.BrokerContext, svc moleculer.Service) {
+		Started: func(ctx moleculer.BrokerContext, svc moleculer.ServiceSchema) {
 			fmt.Println("temp service started -> prefix: ", prefix)
 		},
 		Actions: []moleculer.Action{
@@ -110,18 +111,13 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			servicesBkr := createPrinterBroker(mem)
 			gatewayBkr := createGatewayBroker(mem)
 
-			gatewaySvc := gateway.Service(map[string]interface{}{
+			gatewaySvc := &gateway.HttpService{Settings: map[string]interface{}{
 				"port": "3552",
-			})
-			gatewayBkr.AddService(gatewaySvc)
+			}}
+			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
 			time.Sleep(300 * time.Millisecond)
-
-			value := func(param string) string {
-				return ""
-			}
-			fmt.Println("type for func() --> ", fmt.Sprintf("%T", value))
 
 			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())
@@ -130,6 +126,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
 		})
+
 		It("should discover new added service, reject call when service is removed, and accept again when service added", func() {
 			mem := &memory.SharedMemory{}
 			servicesBkr := createPrinterBroker(mem)
@@ -137,10 +134,10 @@ var _ = Describe("API Gateway Integration Tests", func() {
 
 			port := "3553"
 			host := "http://localhost:" + port
-			gatewaySvc := gateway.Service(map[string]interface{}{
+			gatewaySvc := &gateway.HttpService{Settings: map[string]interface{}{
 				"port": port,
-			})
-			gatewayBkr.AddService(gatewaySvc)
+			}}
+			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
 			time.Sleep(300 * time.Millisecond)
@@ -168,12 +165,13 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			//start it again with modified service
 			tempBkr = createTempBroker(mem, "reborn")
 			tempBkr.Start()
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 
 			response, err = http.Get(host + "/temp/stuff?content=HellowAgain")
 			Expect(err).Should(Succeed())
 			Expect(bodyContent(response)).Should(Equal("HellowAgain reborn..."))
 
+			tempBkr.Stop()
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
 		})
