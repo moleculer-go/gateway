@@ -31,7 +31,7 @@ var _ = Describe("WebSockets Events", func() {
 		}
 
 		topic := "champ.champ"
-		em.onSubscribe(client, payload.New(map[string]interface{}{
+		em.subscribeToMoleculerEvents(client, payload.New(map[string]interface{}{
 			"topic": topic,
 			"name":  "deviceToken",
 			"value": "123oikjh",
@@ -62,7 +62,7 @@ var _ = Describe("WebSockets Events", func() {
 		}
 
 		topic := "champ.champ"
-		em.onSubscribe(client, payload.New(map[string]interface{}{
+		em.subscribeToMoleculerEvents(client, payload.New(map[string]interface{}{
 			"topic": topic,
 			"name":  "deviceToken",
 			"value": "123oikjh",
@@ -77,7 +77,7 @@ var _ = Describe("WebSockets Events", func() {
 		Expect(te.clients[0].name).Should(Equal("deviceToken"))
 		Expect(te.clients[0].value).Should(Equal("123oikjh"))
 
-		em.onSubscribe(client, payload.New(map[string]interface{}{
+		em.subscribeToMoleculerEvents(client, payload.New(map[string]interface{}{
 			"topic": topic,
 			"name":  "deviceToken",
 			"value": "ssssss",
@@ -92,7 +92,7 @@ var _ = Describe("WebSockets Events", func() {
 		Expect(te.clients[0].name).Should(Equal("deviceToken"))
 		Expect(te.clients[0].value).Should(Equal("ssssss"))
 
-		em.onSubscribe(client, payload.New(map[string]interface{}{
+		em.subscribeToMoleculerEvents(client, payload.New(map[string]interface{}{
 			"topic": topic + ".v2",
 			"name":  "deviceToken",
 			"value": "ssssss",
