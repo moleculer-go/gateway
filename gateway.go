@@ -337,7 +337,6 @@ func (svc *HttpService) startServer(context moleculer.BrokerContext) {
 // Started httpService started. It process the settings (default + params), starts a http server,
 // notify the plugins that the http server is starting.
 func (svc *HttpService) Started(context moleculer.BrokerContext, schema moleculer.ServiceSchema) {
-	context.Logger().Info("Gateway Started() called!")
 	svc.settings = service.MergeSettings(defaultSettings, svc.Settings)
 	address := svc.getAddress()
 	svc.server = &http.Server{Addr: address}
