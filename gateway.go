@@ -248,7 +248,7 @@ func populateActionsRouter(context moleculer.Context, settings map[string]interf
 	for _, actionHand := range filterActions(context, settings, fetchServices(context)) {
 		actionHand.context = context
 		path := actionHand.pattern()
-		context.Logger().Debug("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
+		context.Logger().Trace("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
 		router.Handle(path, actionHand)
 	}
 }

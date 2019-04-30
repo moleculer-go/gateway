@@ -35,6 +35,9 @@ type WebSocketClient struct {
 	sendMessage       func(*websocket.Conn, moleculer.Payload) error
 	prepareConnection func(*websocket.Conn)
 	closeConn         func(*websocket.Conn)
+
+	onStart []func(*WebSocketClient)
+	onStop  []func(*WebSocketClient)
 }
 
 func receiveMessage(conn *websocket.Conn) (moleculer.Payload, error) {
@@ -96,6 +99,7 @@ func (wc *WebSocketClient) start() {
 	wc.prepareConnection(wc.conn)
 	go wc.receive()
 	go wc.send()
+	go wc.startHooks()
 }
 
 // stop both receive and send pumps.
@@ -103,6 +107,19 @@ func (wc *WebSocketClient) start() {
 func (wc *WebSocketClient) stop() {
 	wc.sendDone <- true
 	wc.receiveDone <- true
+	go wc.stoptHooks()
+}
+
+func (wc *WebSocketClient) startHooks() {
+	for _, hk := range wc.onStart {
+		hk(wc)
+	}
+}
+
+func (wc *WebSocketClient) stoptHooks() {
+	for _, hk := range wc.onStop {
+		hk(wc)
+	}
 }
 
 const (
