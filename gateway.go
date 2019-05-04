@@ -271,7 +271,8 @@ type GatewayMixin interface {
 type HttpService struct {
 	Settings map[string]interface{}
 	Mixins   []GatewayMixin
-	//
+	Deps     []string
+
 	settings      map[string]interface{}
 	server        *http.Server
 	router        *mux.Router
@@ -283,7 +284,7 @@ func (svc HttpService) Name() string {
 }
 
 func (svc *HttpService) Dependencies() []string {
-	return []string{"$node"}
+	return append(svc.Deps, "$node")
 }
 
 // createReverseProxy creates a reverse proxy to serve app UI content for ecample on path X and API (gateway content) on path Y.

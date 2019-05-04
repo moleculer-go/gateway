@@ -17,7 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var logLevel = "info"
+var logLevel = "error"
 
 func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 	broker := broker.New(&moleculer.Config{
@@ -67,11 +67,14 @@ func createTempBroker(mem *memory.SharedMemory, prefix string) broker.ServiceBro
 		Started: func(ctx moleculer.BrokerContext, svc moleculer.ServiceSchema) {
 			fmt.Println("temp service started -> prefix: ", prefix)
 		},
+		Stopped: func(ctx moleculer.BrokerContext, svc moleculer.ServiceSchema) {
+			fmt.Println("temp service stoped -> prefix: ", prefix)
+		},
 		Actions: []moleculer.Action{
 			{
 				Name: "stuff",
 				Handler: func(ctx moleculer.Context, params moleculer.Payload) interface{} {
-					ctx.Logger().Info("I'm temp and I'm printing the content: ", params.Get("content").String())
+					fmt.Println("I'm temp and I'm printing the content: ", params.Get("content").String(), " my-prefix: ", prefix)
 					result := params.Get("content").String() + " " + prefix + "..."
 					ctx.Emit("temp.stuffed", payload.Empty().Add("result", result))
 					return result
@@ -82,7 +85,7 @@ func createTempBroker(mem *memory.SharedMemory, prefix string) broker.ServiceBro
 			{
 				Name: "stuffed",
 				Handler: func(context moleculer.Context, params moleculer.Payload) {
-					context.Logger().Info("stuff.stuffed --> ", params.Value())
+					fmt.Println("Event stuff.stuffed --> ", params.Value())
 				},
 			},
 		},
@@ -134,25 +137,27 @@ var _ = Describe("API Gateway Integration Tests", func() {
 
 			port := "3553"
 			host := "http://localhost:" + port
-			gatewaySvc := &gateway.HttpService{Settings: map[string]interface{}{
-				"port": port,
-			}}
+			gatewaySvc := &gateway.HttpService{
+				Settings: map[string]interface{}{
+					"port": port,
+				},
+				Deps: []string{"printer"},
+			}
 			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
-			time.Sleep(300 * time.Millisecond)
 
-			response, err := http.Get(host + "/printer/print?content=HellowWorld")
+			response, err := http.Get(host + "/printer/print?content=Hellow-World")
 			Expect(err).Should(Succeed())
-			Expect(bodyContent(response)).Should(Equal("printed content: HellowWorld"))
+			Expect(bodyContent(response)).Should(Equal("printed content: Hellow-World"))
 
 			tempBkr := createTempBroker(mem, "stuffed")
 			tempBkr.Start()
 			time.Sleep(400 * time.Millisecond)
 
-			response, err = http.Get(host + "/temp/stuff?content=HellowWorld")
+			response, err = http.Get(host + "/temp/stuff?content=Brave-New-World")
 			Expect(err).Should(Succeed())
-			Expect(bodyContent(response)).Should(Equal("HellowWorld stuffed..."))
+			Expect(bodyContent(response)).Should(Equal("Brave-New-World stuffed..."))
 
 			//remove the service
 			tempBkr.Stop()
@@ -167,9 +172,9 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			tempBkr.Start()
 			time.Sleep(500 * time.Millisecond)
 
-			response, err = http.Get(host + "/temp/stuff?content=HellowAgain")
+			response, err = http.Get(host + "/temp/stuff?content=Me-Again")
 			Expect(err).Should(Succeed())
-			Expect(bodyContent(response)).Should(Equal("HellowAgain reborn..."))
+			Expect(bodyContent(response)).Should(Equal("Me-Again reborn..."))
 
 			tempBkr.Stop()
 			servicesBkr.Stop()
