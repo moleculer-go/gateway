@@ -185,7 +185,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 
 })
 
-// bodyContent return the reponse body as string
+// bodyContent return the response body as string
 func bodyContent(resp *http.Response) string {
 	defer resp.Body.Close()
 	bts, err := ioutil.ReadAll(resp.Body)
