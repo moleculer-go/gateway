@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/moleculer-go/moleculer"
@@ -53,23 +54,27 @@ var _ = Describe("API Gateway", func() {
 		services := []map[string]interface{}{
 			{
 				"name": "user",
-				"actions": []map[string]interface{}{
-					{
-						"name": "list",
+				"actions": map[string]map[string]interface{}{
+					"list": {
+						"name":    "user.list",
+						"rawName": "list",
 					},
-					{
-						"name": "update",
+					"update": {
+						"name":    "user.update",
+						"rawName": "update",
 					},
 				},
 			},
 			{
 				"name": "auth",
-				"actions": []map[string]interface{}{
-					{
-						"name": "login",
+				"actions": map[string]map[string]interface{}{
+					"login": {
+						"name":    "auth.login",
+						"rawName": "login",
 					},
-					{
-						"name": "logout",
+					"logout": {
+						"name":    "auth.logout",
+						"rawName": "logout",
 					},
 				},
 			},
@@ -89,8 +94,11 @@ var _ = Describe("API Gateway", func() {
 			}
 			actionHandlers := filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(4))
-			Expect(actionHandlers[0].pattern()).Should(Equal("/user/list"))
-			Expect(actionHandlers[1].pattern()).Should(Equal("/user/update"))
+			sort.Sort(handlerSorter{actionHandlers})
+			Expect(actionHandlers[0].pattern()).Should(Equal("/auth/login"))
+			Expect(actionHandlers[1].pattern()).Should(Equal("/auth/logout"))
+			Expect(actionHandlers[2].pattern()).Should(Equal("/user/list"))
+			Expect(actionHandlers[3].pattern()).Should(Equal("/user/update"))
 		})
 
 		It("should filter actions using whitelist settings", func() {
@@ -135,11 +143,12 @@ var _ = Describe("API Gateway", func() {
 			}
 			actionHandlers := filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(4))
-			Expect(actionHandlers[0].pattern()).Should(Equal("/user/list"))
-			Expect(actionHandlers[1].pattern()).Should(Equal("/user/update"))
+			sort.Sort(handlerSorter{actionHandlers})
+			Expect(actionHandlers[0].pattern()).Should(Equal("/admin/auth/login"))
+			Expect(actionHandlers[1].pattern()).Should(Equal("/admin/auth/logout"))
 
-			Expect(actionHandlers[2].pattern()).Should(Equal("/admin/auth/login"))
-			Expect(actionHandlers[3].pattern()).Should(Equal("/admin/auth/logout"))
+			Expect(actionHandlers[2].pattern()).Should(Equal("/user/list"))
+			Expect(actionHandlers[3].pattern()).Should(Equal("/user/update"))
 
 			settings = map[string]interface{}{
 				"routes": []map[string]interface{}{
@@ -156,9 +165,10 @@ var _ = Describe("API Gateway", func() {
 			}
 			actionHandlers = filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(12))
-			Expect(actionHandlers[0].pattern()).Should(Equal("/A/user/list"))
-			Expect(actionHandlers[4].pattern()).Should(Equal("/B/user/list"))
-			Expect(actionHandlers[8].pattern()).Should(Equal("/C/user/list"))
+			sort.Sort(handlerSorter{actionHandlers})
+			Expect(actionHandlers[0].pattern()).Should(Equal("/A/auth/login"))
+			Expect(actionHandlers[4].pattern()).Should(Equal("/B/auth/login"))
+			Expect(actionHandlers[8].pattern()).Should(Equal("/C/auth/login"))
 		})
 	})
 
@@ -379,3 +389,23 @@ var _ = Describe("API Gateway", func() {
 	})
 
 })
+
+type handlerSorter struct {
+	actionHandlers []*actionHandler
+}
+
+func (h handlerSorter) Len() int {
+	return len(h.actionHandlers)
+}
+
+func (h handlerSorter) Less(i, j int) bool {
+	return (*h.actionHandlers[i]).pattern() < (*h.actionHandlers[j]).pattern()
+}
+
+func (h handlerSorter) Swap(i, j int) {
+	iv := h.actionHandlers[i]
+	jv := h.actionHandlers[j]
+
+	h.actionHandlers[i] = jv
+	h.actionHandlers[j] = iv
+}

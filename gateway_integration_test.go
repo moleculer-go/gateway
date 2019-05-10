@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	gateway "github.com/moleculer-go/moleculer-web"
+	"github.com/moleculer-go/gateway"
+	btest "github.com/moleculer-go/moleculer/test/broker"
 
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/broker"
@@ -19,7 +20,7 @@ import (
 
 var logLevel = "error"
 
-func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
+func createPrinterBroker(mem *memory.SharedMemory) *broker.ServiceBroker {
 	broker := broker.New(&moleculer.Config{
 		DiscoverNodeID: func() string { return "node_printerBroker" },
 		LogLevel:       logLevel,
@@ -50,12 +51,12 @@ func createPrinterBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 		},
 	})
 
-	return (*broker)
+	return broker
 }
 
-func createTempBroker(mem *memory.SharedMemory, prefix string) broker.ServiceBroker {
+func createTempBroker(mem *memory.SharedMemory, prefix string) *broker.ServiceBroker {
 	broker := broker.New(&moleculer.Config{
-		DiscoverNodeID: func() string { return "node_tempBroker" },
+		DiscoverNodeID: func() string { return "node_tempBroker_" + prefix },
 		LogLevel:       logLevel,
 		TransporterFactory: func() interface{} {
 			transport := memory.Create(log.WithField("transport", "memory"), mem)
@@ -90,10 +91,10 @@ func createTempBroker(mem *memory.SharedMemory, prefix string) broker.ServiceBro
 			},
 		},
 	})
-	return (*broker)
+	return broker
 }
 
-func createGatewayBroker(mem *memory.SharedMemory) broker.ServiceBroker {
+func createGatewayBroker(mem *memory.SharedMemory) *broker.ServiceBroker {
 	broker := broker.New(&moleculer.Config{
 		DiscoverNodeID: func() string { return "node_gatewayBroker" },
 		LogLevel:       logLevel,
@@ -102,7 +103,7 @@ func createGatewayBroker(mem *memory.SharedMemory) broker.ServiceBroker {
 			return &transport
 		},
 	})
-	return (*broker)
+	return broker
 }
 
 var _ = Describe("API Gateway Integration Tests", func() {
@@ -120,7 +121,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
-			time.Sleep(300 * time.Millisecond)
+			<-btest.WaitNode("node_printerBroker", gatewayBkr)
 
 			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())
@@ -146,6 +147,8 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
+			<-btest.WaitNode("node_printerBroker", gatewayBkr)
+			time.Sleep(time.Millisecond)
 
 			response, err := http.Get(host + "/printer/print?content=Hellow-World")
 			Expect(err).Should(Succeed())
@@ -153,15 +156,15 @@ var _ = Describe("API Gateway Integration Tests", func() {
 
 			tempBkr := createTempBroker(mem, "stuffed")
 			tempBkr.Start()
-			time.Sleep(400 * time.Millisecond)
-
+			<-btest.WaitNode("node_tempBroker_stuffed", gatewayBkr)
+			<-waitAction("/temp/stuff", gatewaySvc)
 			response, err = http.Get(host + "/temp/stuff?content=Brave-New-World")
 			Expect(err).Should(Succeed())
 			Expect(bodyContent(response)).Should(Equal("Brave-New-World stuffed..."))
 
 			//remove the service
 			tempBkr.Stop()
-			time.Sleep(300 * time.Millisecond)
+			<-btest.WaitNodeStop("node_tempBroker_stuffed", gatewayBkr)
 			response, err = http.Get(host + "/temp/stuff?content=HellowWorld")
 			Expect(err).Should(Succeed())
 			Expect(response.StatusCode).Should(Equal(500))
@@ -170,7 +173,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			//start it again with modified service
 			tempBkr = createTempBroker(mem, "reborn")
 			tempBkr.Start()
-			time.Sleep(500 * time.Millisecond)
+			<-btest.WaitNode("node_tempBroker_reborn", gatewayBkr)
 
 			response, err = http.Get(host + "/temp/stuff?content=Me-Again")
 			Expect(err).Should(Succeed())
@@ -191,4 +194,20 @@ func bodyContent(resp *http.Response) string {
 	bts, err := ioutil.ReadAll(resp.Body)
 	Expect(err).Should(Succeed())
 	return string(bts)
+}
+
+func waitAction(path string, gatewaySvc *gateway.HttpService) chan bool {
+	res := make(chan bool)
+	go func() {
+		for {
+			for _, ap := range gatewaySvc.ActionPaths() {
+				if path == ap {
+					res <- true
+					return
+				}
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+	return res
 }

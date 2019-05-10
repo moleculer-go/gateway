@@ -156,9 +156,9 @@ func filterActions(context moleculer.Context, settings map[string]interface{}, s
 			whitelist = route["whitelist"].([]string)
 		}
 		for _, service := range services {
-			actions := service["actions"].([]map[string]interface{})
+			actions := service["actions"].(map[string]map[string]interface{})
 			for _, action := range actions {
-				actionFullName := fmt.Sprint(service["name"].(string), ".", action["name"].(string))
+				actionFullName := action["name"].(string)
 				if shouldInclude(whitelist, actionFullName) {
 					filteredActions = append(filteredActions, actionFullName)
 				}
@@ -241,16 +241,18 @@ var defaultSettings = map[string]interface{}{
 }
 
 // populateActionsRouter create a new mux.router
-func populateActionsRouter(context moleculer.Context, settings map[string]interface{}, router *mux.Router) {
+func populateActionsRouter(context moleculer.Context, settings map[string]interface{}, router *mux.Router) (paths []string) {
 	if router == nil {
-		return
+		return paths
 	}
 	for _, actionHand := range filterActions(context, settings, fetchServices(context)) {
 		actionHand.context = context
 		path := actionHand.pattern()
 		context.Logger().Trace("populateActionsRouter() action -> ", actionHand.action, " path: ", path)
 		router.Handle(path, actionHand)
+		paths = append(paths, path)
 	}
+	return paths
 }
 
 // when enable these are the default values
@@ -277,6 +279,7 @@ type HttpService struct {
 	server        *http.Server
 	router        *mux.Router
 	actionsRouter *mux.Router
+	actionPaths   []string
 }
 
 func (svc HttpService) Name() string {
@@ -367,7 +370,14 @@ func (svc *HttpService) serviceAdded(context moleculer.Context, params moleculer
 	if svc.actionsRouter == nil {
 		return
 	}
-	go populateActionsRouter(context, svc.settings, svc.actionsRouter)
+	go func() {
+		paths := populateActionsRouter(context, svc.settings, svc.actionsRouter)
+		svc.actionPaths = paths
+	}()
+}
+
+func (svc *HttpService) ActionPaths() []string {
+	return svc.actionPaths
 }
 
 func (svc *HttpService) Events() []moleculer.Event {
