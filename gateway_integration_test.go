@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	gateway "github.com/moleculer-go/moleculer-web"
+	"github.com/moleculer-go/gateway"
 
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/broker"

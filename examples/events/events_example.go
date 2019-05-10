@@ -10,7 +10,7 @@ import (
 
 	"github.com/moleculer-go/moleculer"
 
-	gateway "github.com/moleculer-go/moleculer-web"
+	gateway "github.com/moleculer-go/gateway"
 	"github.com/moleculer-go/moleculer/broker"
 )
 

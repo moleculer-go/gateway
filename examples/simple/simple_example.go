@@ -7,7 +7,7 @@ import (
 
 	"github.com/moleculer-go/moleculer"
 
-	gateway "github.com/moleculer-go/moleculer-web"
+	"github.com/moleculer-go/gateway"
 	"github.com/moleculer-go/moleculer/broker"
 )
 
