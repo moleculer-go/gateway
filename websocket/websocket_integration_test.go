@@ -78,7 +78,6 @@ var _ = Describe("WebSocket Integration Tests", func() {
 		// gatewayBkr.Publish(gatewaySvc)
 		// echoBkr.Start()
 		// gatewayBkr.Start()
-		// time.Sleep(300 * time.Millisecond)
 
 		// socket := gowebsocket.New("ws://localhost:3752/ws/")
 		// connected := make(chan bool)
@@ -101,7 +100,6 @@ var _ = Describe("WebSocket Integration Tests", func() {
 		// //subscribe to echo.gone
 		// socket.SendText(`{"event":"subscribe", "payload":{"name":"N", "value":"V", "topic":"echo.gone"}}`)
 
-		// time.Sleep(10 * time.Millisecond)
 		// //Expect(err).Should(BeNil())
 
 		// fmt.Println("Message sent :)")
@@ -109,7 +107,6 @@ var _ = Describe("WebSocket Integration Tests", func() {
 		// gatewayBkr.Call("echo.go", map[string]interface{}{
 		// 	"content": "music...",
 		// })
-		// time.Sleep(300 * time.Millisecond)
 
 		// msg := <-msgReceived
 		// // var msg string

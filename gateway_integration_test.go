@@ -147,8 +147,8 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
-			<-btest.WaitNode("node_printerBroker", gatewayBkr)
-			time.Sleep(time.Millisecond)
+			gatewayBkr.WaitFor("printer")
+			gatewayBkr.WaitForNodes("node_printerBroker")
 
 			response, err := http.Get(host + "/printer/print?content=Hellow-World")
 			Expect(err).Should(Succeed())
@@ -206,7 +206,7 @@ func waitAction(path string, gatewaySvc *gateway.HttpService) chan bool {
 					return
 				}
 			}
-			time.Sleep(time.Second)
+			time.Sleep(time.Microsecond)
 		}
 	}()
 	return res
