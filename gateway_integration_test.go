@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/moleculer-go/gateway"
-	btest "github.com/moleculer-go/moleculer/test/broker"
 
 	"github.com/moleculer-go/moleculer"
 	"github.com/moleculer-go/moleculer/broker"
@@ -69,7 +68,7 @@ func createTempBroker(mem *memory.SharedMemory, prefix string) *broker.ServiceBr
 			fmt.Println("temp service started -> prefix: ", prefix)
 		},
 		Stopped: func(ctx moleculer.BrokerContext, svc moleculer.ServiceSchema) {
-			fmt.Println("temp service stoped -> prefix: ", prefix)
+			fmt.Println("temp service stopped -> prefix: ", prefix)
 		},
 		Actions: []moleculer.Action{
 			{
@@ -121,7 +120,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			gatewayBkr.Publish(gatewaySvc)
 			servicesBkr.Start()
 			gatewayBkr.Start()
-			<-btest.WaitNode("node_printerBroker", gatewayBkr)
+			gatewayBkr.WaitForNodes("node_printerBroker")
 
 			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())
@@ -131,7 +130,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			gatewayBkr.Stop()
 		})
 
-		It("should discover new added service, reject call when service is removed, and accept again when service added", func() {
+		It("should discover new added service, reject call when service is removed, and accept again when service added", func(done Done) {
 			mem := &memory.SharedMemory{}
 			servicesBkr := createPrinterBroker(mem)
 			gatewayBkr := createGatewayBroker(mem)
@@ -156,25 +155,33 @@ var _ = Describe("API Gateway Integration Tests", func() {
 
 			tempBkr := createTempBroker(mem, "stuffed")
 			tempBkr.Start()
-			<-btest.WaitNode("node_tempBroker_stuffed", gatewayBkr)
-			<-waitAction("/temp/stuff", gatewaySvc)
+			gatewayBkr.WaitForActions("temp.stuff")
+			time.Sleep(time.Millisecond)
 			response, err = http.Get(host + "/temp/stuff?content=Brave-New-World")
 			Expect(err).Should(Succeed())
 			Expect(bodyContent(response)).Should(Equal("Brave-New-World stuffed..."))
 
 			//remove the service
 			tempBkr.Stop()
-			<-btest.WaitNodeStop("node_tempBroker_stuffed", gatewayBkr)
+			for {
+				if gatewayBkr.KnowAction("temp.stuff") == false {
+					time.Sleep(time.Microsecond * 500)
+					break
+				}
+				time.Sleep(time.Microsecond)
+			}
 			response, err = http.Get(host + "/temp/stuff?content=HellowWorld")
 			Expect(err).Should(Succeed())
 			Expect(response.StatusCode).Should(Equal(500))
-			Expect(bodyContent(response)).Should(Equal(`{"error":"Registry - endpoint not found for actionName: temp.stuff"}`))
+			bc := bodyContent(response)
+			fmt.Println(bc)
+			Expect(bc).Should(Equal(`{"error":"Registry - endpoint not found for actionName: temp.stuff"}`))
 
 			//start it again with modified service
 			tempBkr = createTempBroker(mem, "reborn")
 			tempBkr.Start()
-			<-btest.WaitNode("node_tempBroker_reborn", gatewayBkr)
-
+			gatewayBkr.WaitForActions("temp.stuff")
+			gatewayBkr.WaitForActions("temp.stuff")
 			response, err = http.Get(host + "/temp/stuff?content=Me-Again")
 			Expect(err).Should(Succeed())
 			Expect(bodyContent(response)).Should(Equal("Me-Again reborn..."))
@@ -182,7 +189,8 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			tempBkr.Stop()
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
-		})
+			close(done)
+		}, 4)
 
 	})
 
