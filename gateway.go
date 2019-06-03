@@ -159,6 +159,9 @@ func filterActions(context moleculer.Context, settings map[string]interface{}, s
 			actions := service["actions"].(map[string]map[string]interface{})
 			for _, action := range actions {
 				actionFullName := action["name"].(string)
+				actionSchema := action["params"].(map[string]interface{})
+				//TODO actionSchema  should have the action Schema which should have the
+				//info I need to create my GraphQL Schema
 				if shouldInclude(whitelist, actionFullName) {
 					filteredActions = append(filteredActions, actionFullName)
 				}
