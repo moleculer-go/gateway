@@ -65,6 +65,7 @@ var resultParseErrorStatusCode = 500
 // sendReponse send the result payload  back using the ResponseWriter
 func (handler *actionHandler) sendReponse(logger *log.Entry, result moleculer.Payload, response http.ResponseWriter) {
 	var json []byte
+	response.Header().Add("Content-Type", "application/json")
 	if result.IsError() {
 		response.WriteHeader(errorStatusCode)
 		json = jsonSerializer.PayloadToBytes(payload.Empty().Add("error", result.Error().Error()))

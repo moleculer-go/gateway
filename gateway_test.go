@@ -124,8 +124,9 @@ var _ = Describe("API Gateway", func() {
 			}
 			actionHandlers = filterActions(ctx, settings, services)
 			Expect(len(actionHandlers)).Should(Equal(2))
-			Expect(actionHandlers[0].pattern()).Should(Equal("/user/list"))
-			Expect(actionHandlers[1].pattern()).Should(Equal("/user/update"))
+			patterns := actionHandlers[0].pattern() + " " + actionHandlers[1].pattern()
+			Expect(patterns).Should(ContainSubstring("/user/list"))
+			Expect(patterns).Should(ContainSubstring("/user/update"))
 		})
 
 		It("should handle multiple routes", func() {
@@ -181,7 +182,7 @@ var _ = Describe("API Gateway", func() {
 				"nilvalue": nil,
 			}
 
-			response := &mockReponseWriter{}
+			response := &mockReponseWriter{header: map[string][]string{}}
 			ah := actionHandler{}
 			ah.sendReponse(log.WithField("test", ""), payload.New(result), response)
 			json := response.String()
@@ -190,15 +191,17 @@ var _ = Describe("API Gateway", func() {
 			Expect(gjson.Get(json, "name").String()).Should(Equal("John"))
 
 			Expect(response.statusCode).Should(Equal(succesStatusCode))
+			Expect(response.Header().Get("Content-Type")).Should(Equal("application/json"))
 		})
 
 		It("should convert error result into JSON and send in the reponse with error status code", func() {
-			response := &mockReponseWriter{}
+			response := &mockReponseWriter{header: map[string][]string{}}
 			ah := actionHandler{}
 			ah.sendReponse(log.WithField("test", ""), payload.New(errors.New("Some error...")), response)
 			json := response.String()
 			Expect(gjson.Get(json, "error").String()).Should(Equal("Some error..."))
 			Expect(response.statusCode).Should(Equal(errorStatusCode))
+			Expect(response.Header().Get("Content-Type")).Should(Equal("application/json"))
 		})
 	})
 
