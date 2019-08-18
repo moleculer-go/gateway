@@ -190,7 +190,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
 			close(done)
-		}, 4)
+		}, 40000)
 
 	})
 
