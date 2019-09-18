@@ -124,7 +124,7 @@ var _ = Describe("API Gateway Integration Tests", func() {
 
 			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
 			Expect(err).Should(BeNil())
-			Expect(bodyContent(response)).Should(Equal("printed content: HellowWorld"))
+			Expect(bodyContent(response)).Should(Equal("printed content: Hello World"))
 
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
