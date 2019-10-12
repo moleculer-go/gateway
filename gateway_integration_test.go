@@ -122,9 +122,9 @@ var _ = Describe("API Gateway Integration Tests", func() {
 			gatewayBkr.Start()
 			gatewayBkr.WaitForNodes("node_printerBroker")
 
-			response, err := http.Get("http://localhost:3552/printer/print?content=HellowWorld")
+			response, err := http.Get("http://localhost:3552/printer/print?content=Hellow%20World")
 			Expect(err).Should(BeNil())
-			Expect(bodyContent(response)).Should(Equal("printed content: Hello World"))
+			Expect(bodyContent(response)).Should(Equal("printed content: Hellow World"))
 
 			servicesBkr.Stop()
 			gatewayBkr.Stop()
