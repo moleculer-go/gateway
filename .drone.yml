@@ -14,7 +14,7 @@ steps:
       COVERALLS_TOKEN:
         from_secret: COVERALLS_TOKEN
     commands:
-      - echo "test local CI"
+      - echo "test local CI again"
       - apt-get update
       - apt-get install unzip
       - go get -v golang.org/x/lint/golint
