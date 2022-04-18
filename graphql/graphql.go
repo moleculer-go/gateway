@@ -2,10 +2,11 @@ package graphql
 
 import (
 	"github.com/moleculer-go/moleculer/payload"
-	"strings"
 
 	"github.com/graphql-go/graphql"
 	"github.com/moleculer-go/moleculer"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type GraphQLService struct {
@@ -13,6 +14,8 @@ type GraphQLService struct {
 	serviceSchema moleculer.ServiceSchema
 	graphqlSchema graphql.SchemaConfig
 }
+
+var engTitle = cases.Title(language.English, cases.NoLower)
 
 func (svc *GraphQLService) Events() []moleculer.Event {
 	return []moleculer.Event{
@@ -32,16 +35,18 @@ func (svc *GraphQLService) serviceAdded(context moleculer.Context, params molecu
 // 1) get all services known to the broker
 func (svc *GraphQLService) rebuildSchema() {
 	services := []map[string]interface{}{} //TODO fetch services from broker.. see http gateway
+
 	svc.graphqlSchema = svc.buildSchemaConfig(services)
 }
 
-//queryActions filter actions and keeps only the ones config for graphql query
+//queryActions filter actions and keeps only the ones configured for graphql query
 func (svc *GraphQLService) queryActions(service map[string]interface{}) (actions map[string]interface{}) {
-	payload.New(service).Get("actions").ForEach(func(key interface{}, value Payload) bool{
-		if value
+	payload.New(service).Get("actions").ForEach(func(key interface{}, action moleculer.Payload) bool {
+		if action.Get("graphql.query").String() == "query" {
+			actions[key.(string)] = action
+		}
 		return true
 	})
-
 	return actions
 }
 
@@ -111,9 +116,9 @@ func (svc *GraphQLService) queryActionToFields(service, action map[string]interf
 	serviceName := service["name"].(string)
 	fullName := action["name"].(string)
 	rawName := action["rawName"].(string)
-
+	fields = graphql.Fields{}
 	if rawName == "get" {
-		name := "get" + strings.Title(serviceName)
+		name := engTitle.String(serviceName) + "ById"
 		output := graphql.NewObject(graphql.ObjectConfig{
 			Name:   name + "Result",
 			Fields: schemaToGQLFields(action["output"].(map[string]interface{})),
@@ -139,7 +144,7 @@ func (svc *GraphQLService) queryActionToFields(service, action map[string]interf
 	//list multiple records with filter criteria and pagination.
 	if rawName == "list" {
 		//example service name: user --> field: listUser(query!), listProperty(query!)
-		name := "list" + strings.Title(serviceName)
+		name := "List" + engTitle.String(serviceName)
 		output := graphql.NewObject(graphql.ObjectConfig{
 			Name:   name + "Result",
 			Fields: schemaToGQLFields(action["output"].(map[string]interface{})),
@@ -156,13 +161,14 @@ func (svc *GraphQLService) queryActionToFields(service, action map[string]interf
 		return fields
 	}
 
+	name := engTitle.String(rawName)
 	// custom actions
 	output := graphql.NewObject(graphql.ObjectConfig{
-		Name:   rawName + "Result",
+		Name:   name + "Result",
 		Fields: schemaToGQLFields(action["output"].(map[string]interface{})),
 	})
-	fields[rawName] = &graphql.Field{
-		Name: rawName,
+	fields[name] = &graphql.Field{
+		Name: name,
 		Type: graphql.NewList(output),
 		Args: schemaToGQLFieldArguments(action["params"].(map[string]interface{})),
 		Resolve: actionResolver(

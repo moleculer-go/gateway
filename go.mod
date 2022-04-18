@@ -11,4 +11,5 @@ require (
 	github.com/onsi/gomega v1.5.0
 	github.com/sirupsen/logrus v1.4.2
 	github.com/tidwall/gjson v1.2.1
+	golang.org/x/text v0.3.0
 )

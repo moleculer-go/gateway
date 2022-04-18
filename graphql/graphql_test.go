@@ -1,12 +1,11 @@
 package graphql
 
 import (
+	"fmt"
 	"github.com/moleculer-go/moleculer/payload"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
-
-type M map[string]interface{}
 
 var _ = Describe("Graphql", func() {
 
@@ -15,30 +14,30 @@ var _ = Describe("Graphql", func() {
 	// - Mutation
 	//  - userEventStore
 	// 	 - create
-	mutationExample := M{
+	mutationExample := map[string]interface{}{
 		"name": "userEventStore",
-		"actions": map[string]M{
-			"userEventStore.create": M{
+		"actions": map[string]map[string]interface{}{
+			"userEventStore.create": map[string]interface{}{
 				"name":    "userEventStore.create",
 				"rawName": "create",
-				"params": M{
-					"name":     M{"type": "string", "optional": false},
-					"lastname": M{"type": "string", "optional": true},
+				"params": map[string]interface{}{
+					"name":     map[string]interface{}{"type": "string", "optional": false},
+					"lastname": map[string]interface{}{"type": "string", "optional": true},
 				},
-				"output": M{
-					"eventId":   M{"type": "number", "integer": true},
-					"createdAt": M{"type": "number", "integer": true},
+				"output": map[string]interface{}{
+					"eventId":   map[string]interface{}{"type": "number", "integer": true},
+					"createdAt": map[string]interface{}{"type": "number", "integer": true},
 				},
 				"graphql": "mutation",
-				"metrics": M{},
+				"metrics": map[string]interface{}{},
 			},
 		},
 	}
 
-	userOutput := M{
-		"name":     M{"type": "string"},
-		"lastname": M{"type": "string"},
-		"age":      M{"type": "number", "integer": true},
+	userOutput := map[string]interface{}{
+		"name":     map[string]interface{}{"type": "string"},
+		"lastname": map[string]interface{}{"type": "string"},
+		"age":      map[string]interface{}{"type": "number", "integer": true},
 	}
 
 	//query example: user aggregate find action. return a paginated list of users.
@@ -47,62 +46,66 @@ var _ = Describe("Graphql", func() {
 	//  - user -> maps to user.get
 	// 	- users -> maps to user.find
 	// 	- expiredUsers -> maps to user.expiredUsers
-	queryExample := M{
+	queryExample := map[string]interface{}{
 		"name": "user",
-		"actions": map[string]M{
+		"actions": map[string]map[string]interface{}{
 			// -> will map to query/user and  query/usersByIds for multiple ids
-			"user.get": M{
+			"user.get": map[string]interface{}{
 				"name":    "user.get",
 				"rawName": "get",
-				"params": M{
-					"ids":      M{"type": "array", "items": "string"},
-					"fields":   M{"type": "array", "items": "string", "optional": true},
-					"populate": M{"type": "array", "items": "string", "optional": true},
-					"mapping":  M{"type": "boolean", "optional": true},
+				"params": map[string]interface{}{
+					"ids":      map[string]interface{}{"type": "array", "items": "string"},
+					"fields":   map[string]interface{}{"type": "array", "items": "string", "optional": true},
+					"populate": map[string]interface{}{"type": "array", "items": "string", "optional": true},
+					"mapping":  map[string]interface{}{"type": "boolean", "optional": true},
 				},
 				"output":  userOutput,
 				"graphql": "query",
-				"metrics": M{},
+				"metrics": map[string]interface{}{},
 			},
 			// -> will map to query/users
-			"user.list": M{
+			"user.list": map[string]interface{}{
 				"name":    "user.list",
 				"rawName": "list",
-				"params": M{
-					"query":        M{"type": "object", "optional": true},
-					"search":       M{"type": "string", "optional": true},
-					"searchFields": M{"type": "array", "items": "string", "optional": true},
-					"fields":       M{"type": "array", "items": "string", "optional": true},
-					"populate":     M{"type": "array", "items": "string", "optional": true},
-					"sort":         M{"type": "string", "optional": true},
-					"page":         M{"type": "number", "integer": true, "optional": true},
-					"pageSize":     M{"type": "number", "integer": true, "optional": true},
+				"params": map[string]interface{}{
+					"query":        map[string]interface{}{"type": "object", "optional": true},
+					"search":       map[string]interface{}{"type": "string", "optional": true},
+					"searchFields": map[string]interface{}{"type": "array", "items": "string", "optional": true},
+					"fields":       map[string]interface{}{"type": "array", "items": "string", "optional": true},
+					"populate":     map[string]interface{}{"type": "array", "items": "string", "optional": true},
+					"sort":         map[string]interface{}{"type": "string", "optional": true},
+					"page":         map[string]interface{}{"type": "number", "integer": true, "optional": true},
+					"pageSize":     map[string]interface{}{"type": "number", "integer": true, "optional": true},
 				},
 				"output":  userOutput,
 				"graphql": "query",
-				"metrics": M{},
+				"metrics": map[string]interface{}{},
 			},
 			//custom action query/expiredUsers
-			"user.expiredUsers": M{
+			"user.expiredUsers": map[string]interface{}{
 				"name":    "user.expiredUsers",
 				"rawName": "expiredUsers",
-				"params": M{
-					"periodFrom": M{"type": "number", "integer": true},
-					"periodTo":   M{"type": "number", "integer": true},
+				"params": map[string]interface{}{
+					"periodFrom": map[string]interface{}{"type": "number", "integer": true},
+					"periodTo":   map[string]interface{}{"type": "number", "integer": true},
 				},
 				"output":  userOutput,
 				"graphql": "query",
-				"metrics": M{},
+				"metrics": map[string]interface{}{},
 			},
 		},
 	}
 
-	It("queryFields should create graphql fields based on action definitions ", func() {
+	FIt("queryActionsToFields should create graphql fields based on action definitions ", func() {
 		svc := GraphQLService{}
 		p := payload.New(queryExample)
 		fields := svc.queryActionsToFields(queryExample, p.Get("actions").RawMap())
+		fmt.Println("queryActionsToFields fields")
+		fmt.Println(fields)
 		Expect(fields).ShouldNot(BeNil())
-		Expect(fields["user"]).ShouldNot(BeNil())
+		Expect(fields["UserById"]).ShouldNot(BeNil())
+		Expect(fields["ListUser"]).ShouldNot(BeNil())
+		Expect(fields["ExpiredUsers"]).ShouldNot(BeNil())
 
 	})
 
@@ -124,15 +127,15 @@ var _ = Describe("Graphql", func() {
 		Expect(graphSchema).ShouldNot(BeNil())
 	})
 
-	FIt("queryActions should return actions that are graphql query", func() {
+	It("queryActions should return actions that are graphql query", func() {
 		svc := GraphQLService{}
-		queryExample["user.nonGrapQl"] = M{
+		queryExample["user.nonGrapQl"] = map[string]interface{}{
 			"name":    "user.nonGrapQl",
 			"rawName": "nonGrapQl",
-			"params": M{
-				"ids": M{"type": "array", "items": "string"},
+			"params": map[string]interface{}{
+				"ids": map[string]interface{}{"type": "array", "items": "string"},
 			},
-			"metrics": M{},
+			"metrics": map[string]interface{}{},
 		}
 		actions := svc.queryActions(queryExample)
 		Expect(len(actions)).Should(Equal(3))
